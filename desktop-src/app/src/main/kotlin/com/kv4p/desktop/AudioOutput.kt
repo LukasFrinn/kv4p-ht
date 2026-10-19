@@ -19,7 +19,11 @@ class AudioOutput {
     @Volatile
     var muted: Boolean = false
 
-    /** 0.0 .. 1.0 */
+    /**
+     * 0.0 .. MAX_VOLUME. Above 1.0 the audio is boosted digitally: the radio
+     * delivers fairly quiet audio, and desktop speakers are weaker than phones.
+     * A soft limiter keeps boosted peaks from clipping harshly.
+     */
     @Volatile
     var volume: Float = 0.8f
 
@@ -52,10 +56,11 @@ class AudioOutput {
     fun write(pcm: FloatArray, samples: Int) {
         val l = line ?: return
         if (muted) return
-        val gain = volume * 32767f
+        val gain = volume
         var j = 0
         for (i in 0 until samples) {
-            val s = (pcm[i] * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            val s = (softLimit(pcm[i] * gain) * 32767f).toInt()
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
             bytes[j++] = (s and 0xFF).toByte()
             bytes[j++] = ((s shr 8) and 0xFF).toByte()
         }
@@ -64,7 +69,19 @@ class AudioOutput {
         }
     }
 
-    private companion object {
-        const val TAG = "AudioOutput"
+    companion object {
+        private const val TAG = "AudioOutput"
+        const val MAX_VOLUME = 4f // +12 dB
+
+        private const val KNEE = 0.7f
+
+        /** Linear below the knee, then smoothly approaches 1.0 instead of clipping. */
+        fun softLimit(x: Float): Float {
+            val a = kotlin.math.abs(x)
+            if (a <= KNEE) return x
+            val over = (a - KNEE) / (1f - KNEE)
+            val limited = KNEE + (1f - KNEE) * kotlin.math.tanh(over)
+            return if (x < 0) -limited else limited
+        }
     }
 }

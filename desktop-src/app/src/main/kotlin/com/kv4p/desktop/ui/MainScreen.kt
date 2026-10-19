@@ -218,7 +218,7 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
         LabeledSlider("Squelch", "${vm.squelch}", vm.squelch.toFloat(), 0f..8f, steps = 7, enabled = connected) {
             vm.updateSquelch(it.toInt())
         }
-        LabeledSlider("Volume", "${(vm.volume * 100).toInt()}%", vm.volume, 0f..1f, steps = 0, enabled = true) {
+        LabeledSlider("Volume", "${(vm.volume * 100).toInt()}%", vm.volume, 0f..com.kv4p.desktop.AudioOutput.MAX_VOLUME, steps = 0, enabled = true) {
             vm.updateVolume(it)
         }
 
