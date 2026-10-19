@@ -545,6 +545,11 @@ public final class DesktopRadioSession implements AutoCloseable {
         radioThread.execute(() -> radioModule.setFilters(emphasis, highpass, lowpass));
     }
 
+    /** Audio filters as currently requested from the firmware (seeded from the radio on connect). */
+    public boolean isPreEmphasisEnabled() { return radioModule.isPreEmphasisEnabled(); }
+    public boolean isHighpassEnabled() { return radioModule.isHighpassEnabled(); }
+    public boolean isLowpassEnabled() { return radioModule.isLowpassEnabled(); }
+
     public void setHighPower(boolean high) {
         radioThread.execute(() -> radioModule.setHighPower(high));
     }

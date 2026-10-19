@@ -96,7 +96,7 @@ private fun AprsHeader(vm: RadioViewModel) {
         Text("${vm.aprsEntries.size} packets", style = MaterialTheme.typography.bodySmall, color = Kv4pColors.MediumGray)
     }
     Text(
-        "Tip: squelch 0 and all filters off decode best (same as the Android app).",
+        "Tip: squelch 0 and all three filters off decode best - on the receiving radio too (kv4p FAQ).",
         style = MaterialTheme.typography.bodySmall,
         color = Kv4pColors.MediumGray,
     )
@@ -140,7 +140,7 @@ private fun EntryRow(e: AprsController.Entry, me: DoubleArray?, @Suppress("UNUSE
             Text(
                 buildString {
                     append(e.from ?: "?")
-                    if (e.to != null) append(" → ").append(e.to)
+                    if (e.to != null) append(" → ").append(if (e.to!!.startsWith("BLN")) "everyone (${e.to})" else e.to)
                     if (e.relay != null) append("  (via ").append(e.relay).append(')')
                 },
                 fontWeight = FontWeight.Medium,
@@ -207,7 +207,7 @@ private fun ChatInput(vm: RadioViewModel) {
         OutlinedTextField(
             value = to,
             onValueChange = { to = it.uppercase().take(9) },
-            label = { Text("To (empty = CQ)") },
+            label = { Text("To (empty = everyone)") },
             singleLine = true,
             modifier = Modifier.width(170.dp),
         )

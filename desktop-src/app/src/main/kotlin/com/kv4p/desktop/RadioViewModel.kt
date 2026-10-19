@@ -58,6 +58,13 @@ class RadioViewModel {
         private set
     var highPower by mutableStateOf(prefs.getBoolean(PREF_HIGH_POWER, true))
         private set
+    /** SA818 audio filters; the radio remembers them, so they're read back from it on connect. */
+    var filterEmphasis by mutableStateOf(false)
+        private set
+    var filterHighpass by mutableStateOf(false)
+        private set
+    var filterLowpass by mutableStateOf(false)
+        private set
 
     // ------------------------------------------------------------------ APRS
 
@@ -131,6 +138,9 @@ class RadioViewModel {
             this@RadioViewModel.squelched = squelched
             this@RadioViewModel.txActive = txActive
             this@RadioViewModel.txAllowed = session.isTxAllowed
+            filterEmphasis = session.isPreEmphasisEnabled
+            filterHighpass = session.isHighpassEnabled
+            filterLowpass = session.isLowpassEnabled
         }
 
         override fun onTxChanged(transmitting: Boolean, reason: String) {
@@ -242,6 +252,13 @@ class RadioViewModel {
         micGain = label
         prefs.put(PREF_MIC_GAIN, label)
         session.setMicGainBoost(label)
+    }
+
+    fun updateFilters(emphasis: Boolean = filterEmphasis, highpass: Boolean = filterHighpass, lowpass: Boolean = filterLowpass) {
+        filterEmphasis = emphasis
+        filterHighpass = highpass
+        filterLowpass = lowpass
+        session.setFilters(emphasis, highpass, lowpass)
     }
 
     fun updateHighPower(high: Boolean) {

@@ -236,6 +236,8 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
             vm.updateVolumeSlider(it)
         }
 
+        FilterRow(vm, connected)
+
         PttRow(vm, connected)
 
         Spacer(Modifier.weight(1f))
@@ -247,6 +249,24 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
                 color = Kv4pColors.PrimaryDeselected,
             )
         }
+    }
+}
+
+/** SA818 audio filters, same switches as the Android app's settings. */
+@Composable
+private fun FilterRow(vm: RadioViewModel, connected: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Filters", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyLarge)
+        androidx.compose.material3.Checkbox(vm.filterEmphasis, { vm.updateFilters(emphasis = it) }, enabled = connected)
+        Text("Emphasis", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.width(8.dp))
+        androidx.compose.material3.Checkbox(vm.filterHighpass, { vm.updateFilters(highpass = it) }, enabled = connected)
+        Text("Highpass", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.width(8.dp))
+        androidx.compose.material3.Checkbox(vm.filterLowpass, { vm.updateFilters(lowpass = it) }, enabled = connected)
+        Text("Lowpass", style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.width(12.dp))
+        Text("APRS decodes best with all off", style = MaterialTheme.typography.labelSmall, color = Kv4pColors.MediumGray)
     }
 }
 
