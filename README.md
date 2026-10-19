@@ -36,7 +36,9 @@ there for installing, usage and building.
 | FreeDV 2400B digital voice | planned |
 | Firmware flashing | planned (use the web flasher on kv4p.com meanwhile) |
 
-Requires kv4p HT firmware **v17 or newer**.
+Works with the official **v2.0.0.1** release firmware (v17) - the one the Google Play
+app and the kv4p.com web flasher install. The desktop branch follows upstream
+releases, not upstream `main`.
 
 Licensed under the GNU GPL v3, the same as the original project (see [LICENSE](LICENSE)).
 
