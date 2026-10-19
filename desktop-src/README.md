@@ -54,6 +54,17 @@ Download the build for your system from the repository's **Actions** tab
 
 **Linux (.deb)**
 
+Recommended: install and update with the script (run it again for every
+update, no need to uninstall first; needs the GitHub CLI once:
+`sudo apt install gh && gh auth login`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/LukasFrinn/kv4p-ht/desktop-app/desktop-src/scripts/install-linux.sh | bash
+```
+
+It picks the arm64 or x64 build, installs it with apt and adds you to the
+`dialout` group (log out and back in once after that). Or by hand:
+
 ```sh
 sudo apt install ./kv4p-ht-desktop_*.deb
 sudo usermod -aG dialout $USER   # serial port access; log out and back in
