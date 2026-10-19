@@ -58,7 +58,13 @@ public class DesktopRadioSessionTest {
         });
         transport = new FakeTransport();
         session.connectTransport(transport, "fake");
-        session.runOnRadioThreadAndWait(() -> { });
+        // connect -> onReady -> startHandshake hops through the radio thread
+        // several times; wait until the handshake has actually started.
+        long deadline = System.currentTimeMillis() + 5000;
+        while (states.isEmpty() || last(states) != DesktopRadioSession.ConnectionState.HANDSHAKE) {
+            assertTrue("handshake did not start", System.currentTimeMillis() < deadline);
+            session.runOnRadioThreadAndWait(() -> { });
+        }
     }
 
     @After

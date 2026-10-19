@@ -55,19 +55,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Test shared radio core
-        run: ./gradlew :core:test --stacktrace
+        shell: bash
+        run: ../.github/scripts/gradle-annotate.sh ./gradlew :core:test
 
       - name: Build packages
         shell: bash
-        run: |
-          set -o pipefail
-          ./gradlew :app:${{ matrix.package }} :app:packageUberJarForCurrentOS -PappVersion=1.0.${{ github.run_number }} 2>&1 | tee build.log || {
-            # Surface compiler errors as annotations (readable without the raw log).
-            grep -E '^e: |^\* What went wrong' -A4 build.log | head -40 | while IFS= read -r line; do
-              echo "::error title=build::${line}"
-            done
-            exit 1
-          }
+        run: ../.github/scripts/gradle-annotate.sh ./gradlew :app:${{ matrix.package }} :app:packageUberJarForCurrentOS -PappVersion=1.0.${{ github.run_number }}
 
       - uses: actions/upload-artifact@v7
         with:

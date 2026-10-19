@@ -104,7 +104,7 @@ public final class DesktopRadioSession implements AutoCloseable {
     private DesktopTransport transport;
     private volatile DesktopTransport activeTransport;
     private volatile Protocol.Sender sender;
-    private ConnectionState state = ConnectionState.DISCONNECTED;
+    private volatile ConnectionState state = ConnectionState.DISCONNECTED;
     private ScheduledFuture<?> helloRetry;
     private ScheduledFuture<?> helloTimeout;
     private boolean waitingForHello;
