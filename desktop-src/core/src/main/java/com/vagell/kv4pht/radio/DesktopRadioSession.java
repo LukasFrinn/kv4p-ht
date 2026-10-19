@@ -437,6 +437,30 @@ public final class DesktopRadioSession implements AutoCloseable {
         }
     }
 
+    /**
+     * Queues one AX.25 frame (without CRC) for the firmware to transmit as
+     * AFSK1200 - the same path the Android app uses for APRS. Refused while
+     * not connected, while voice PTT is active, or outside the TX band.
+     */
+    public boolean sendAx25(byte[] frameWithoutCrc) {
+        Protocol.Sender s = sender;
+        if (s == null || state != ConnectionState.CONNECTED) {
+            Log.w(TAG, "AX.25 not sent: radio not connected");
+            return false;
+        }
+        if (transmitting) {
+            Log.w(TAG, "AX.25 not sent: voice transmission in progress");
+            return false;
+        }
+        if (!radioModule.isTxAllowed()) {
+            Log.w(TAG, "AX.25 not sent: TX not allowed on this frequency");
+            return false;
+        }
+        s.txAx25(frameWithoutCrc);
+        Log.d(TAG, "Sent AX.25 frame, " + frameWithoutCrc.length + " bytes");
+        return true;
+    }
+
     private void startTx(String reason) {
         if (transmitting) {
             return;

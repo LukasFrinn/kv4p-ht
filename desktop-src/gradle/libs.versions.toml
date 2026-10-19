@@ -6,11 +6,13 @@ jserialcomm = "2.11.2"
 lombok = "1.18.46"
 junit = "4.13.2"
 concentus = "1.0.1"
+jetbrains-annotations = "24.1.0"
 
 [libraries]
 jserialcomm = { module = "com.fazecast:jSerialComm", version.ref = "jserialcomm" }
 lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
 concentus = { module = "io.github.jaredmdobson:concentus", version.ref = "concentus" }
+jetbrains-annotations = { module = "org.jetbrains:annotations", version.ref = "jetbrains-annotations" }
 junit = { module = "junit:junit", version.ref = "junit" }
 coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
 

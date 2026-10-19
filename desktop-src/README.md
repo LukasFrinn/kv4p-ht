@@ -4,13 +4,18 @@ Desktop app for the [kv4p HT](https://kv4p.com) radio, connected over USB.
 Targets Linux arm64 (Raspberry Pi OS, Debian 13 / ClockworkPi uConsole),
 Linux x64 and macOS on Apple Silicon.
 
-**Status: step 2 - receive and transmit.** Connects, does the firmware
+**Status: step 3 - receive, transmit and APRS.** Connects, does the firmware
 handshake, tunes simplex frequencies, plays received audio, shows the S-meter
 and squelch, and transmits from the microphone: hold the PTT button, the space
 bar, or the PTT button on the radio. TX is only allowed inside the selected
 band plan (IARU Region 1 by default: 144-146 / 430-440 MHz) and stops
-automatically after 3 minutes, like the Android app. APRS, memories and
-FreeDV come next.
+automatically after 3 minutes, like the Android app. 
+
+**APRS** (APRS tab): received positions, messages, weather and objects with
+distance from you; chat with automatic acks and delivery marks; position
+beacon now or every 5-60 minutes from a Maidenhead locator or lat/lon (the
+desktop has no GPS); optional WIDE1-1 fill-in digipeater. One click tunes
+144.800 MHz. Memories and FreeDV come next.
 
 On macOS the first transmit asks for microphone permission. If you denied it,
 re-enable kv4p-ht-desktop in *System Settings > Privacy & Security > Microphone*
@@ -31,6 +36,8 @@ The radio logic is not rewritten. `core` compiles these files straight from
 - `RadioModuleController.java` - desired/applied radio state
 - `OpusUtils.java` - audio codec (Concentus, pure Java Opus)
 - `MicGainBoost.java`, `RadioMode.java`
+- `aprs/parser/*` and `javAX25/ax25/Packet.java` - APRS parsing and AX.25 frames
+  (the firmware does the AFSK1200 modem work itself)
 
 `android.util.Log`, `androidx.annotation` and usb-serial's
 `SerialInputOutputManager` are stubbed so those files compile unchanged.
@@ -44,7 +51,8 @@ Desktop-only code:
 | Path | What |
 |---|---|
 | `core/.../SerialPortTransport.java` | USB serial via jSerialComm, ESP32 reset |
-| `core/.../DesktopRadioSession.java` | connection, handshake, RX (desktop version of RadioAudioService) |
+| `core/.../DesktopRadioSession.java` | connection, handshake, RX/TX audio, PTT (desktop version of RadioAudioService) |
+| `core/.../desktop/AprsController.java` | APRS receive/chat/acks/beacon/digipeat, ported from the Android app |
 | `app/` | Compose Desktop UI, audio output, logging, packaging |
 
 ## Install

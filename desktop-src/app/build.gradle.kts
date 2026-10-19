@@ -24,7 +24,7 @@ tasks.processResources {
         include("jost_variable.ttf")
         into("font")
     }
-    // Window/taskbar icon (generated from the project's artwork/app-icon.svg).
+    // Window/taskbar icon (generated from the project's artwork/app-icon.png).
     from("icons") { include("kv4p.png") }
 }
 

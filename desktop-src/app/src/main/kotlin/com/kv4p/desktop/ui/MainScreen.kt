@@ -30,6 +30,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -57,18 +59,30 @@ import com.vagell.kv4pht.radio.DesktopRadioSession.ConnectionState
 
 /**
  * Main window. Laid out for 1280x720 (ClockworkPi uConsole) and up:
- * connection bar on top, radio face on the left, log on the right.
+ * connection bar on top, then the Radio tab (radio face + log) or the APRS tab.
  */
 @Composable
 fun MainScreen(vm: RadioViewModel) {
+    var tab by remember { mutableStateOf(0) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().padding(12.dp)) {
             ConnectionBar(vm)
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxSize()) {
-                RadioFace(vm, Modifier.weight(1f).fillMaxHeight())
-                Spacer(Modifier.width(12.dp))
-                LogPanel(vm, Modifier.width(420.dp).fillMaxHeight())
+            Spacer(Modifier.height(8.dp))
+            TabRow(selectedTabIndex = tab, containerColor = Kv4pColors.Black, modifier = Modifier.width(360.dp)) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Radio") })
+                Tab(selected = tab == 1, onClick = { tab = 1; vm.clearAprsUnread() }, text = {
+                    Text(if (vm.aprsUnread > 0 && tab != 1) "APRS (${vm.aprsUnread})" else "APRS")
+                })
+            }
+            Spacer(Modifier.height(8.dp))
+            if (tab == 0) {
+                Row(Modifier.fillMaxSize()) {
+                    RadioFace(vm, Modifier.weight(1f).fillMaxHeight())
+                    Spacer(Modifier.width(12.dp))
+                    LogPanel(vm, Modifier.width(420.dp).fillMaxHeight())
+                }
+            } else {
+                AprsScreen(vm, Modifier.fillMaxSize())
             }
         }
     }

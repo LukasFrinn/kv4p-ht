@@ -26,14 +26,27 @@ val sharedUpstreamSources = listOf(
     "com/vagell/kv4pht/radio/OpusUtils.java",
     "com/vagell/kv4pht/radio/MicGainBoost.java",
     "com/vagell/kv4pht/radio/RadioMode.java",
+    // APRS: the firmware demodulates/modulates AFSK itself and exchanges AX.25
+    // frames over KISS, so only the packet classes and the APRS parser are needed.
+    "com/vagell/kv4pht/javAX25/ax25/Packet.java",
+    "com/vagell/kv4pht/javAX25/ax25/Arrays.java",
+)
+
+// Whole upstream directories shared as-is.
+val sharedUpstreamDirs = listOf(
+    "com/vagell/kv4pht/aprs/parser",
 )
 
 val syncUpstreamSources by tasks.registering(Sync::class) {
     description = "Copies the shared Java sources from android-src into the build."
-    from(upstreamJavaDir) { include(sharedUpstreamSources) }
+    from(upstreamJavaDir) {
+        include(sharedUpstreamSources)
+        sharedUpstreamDirs.forEach { include("$it/*.java") }
+    }
     into(layout.buildDirectory.dir("generated/upstream-java"))
     doFirst {
-        val missing = sharedUpstreamSources.filterNot { upstreamJavaDir.resolve(it).isFile }
+        val missing = sharedUpstreamSources.filterNot { upstreamJavaDir.resolve(it).isFile } +
+            sharedUpstreamDirs.filterNot { upstreamJavaDir.resolve(it).isDirectory }
         check(missing.isEmpty()) {
             "Shared upstream sources moved or were deleted: $missing. Update core/build.gradle.kts."
         }
@@ -52,6 +65,7 @@ dependencies {
 
     compileOnly(libs.lombok)
     annotationProcessor(libs.lombok)
+    compileOnly(libs.jetbrains.annotations)
 
     testImplementation(libs.junit)
     testCompileOnly(libs.lombok)

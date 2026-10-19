@@ -115,7 +115,7 @@ jobs:
           git fetch --tags upstream main
           LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
           BASE=$(git describe --tags --abbrev=0 --match 'v*' HEAD)
-          SHARED='radio/(Protocol|RadioModuleController|OpusUtils|MicGainBoost|RadioMode)\.java'
+          SHARED='radio/(Protocol|RadioModuleController|OpusUtils|MicGainBoost|RadioMode)\.java|aprs/parser/|javAX25/ax25/(Packet|Arrays)\.java'
           {
             echo "## Upstream"
             echo
