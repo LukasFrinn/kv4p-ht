@@ -56,13 +56,13 @@ class RadioViewModel {
     var txRegion by mutableStateOf(prefs.get(PREF_TX_REGION, REGION_1))
         private set
 
-    private val mic = MicInput(
+    private val mic: MicInput = MicInput(
         onFrame = { frame -> session.sendTxAudio(frame) },
         onLevel = { level -> ui { micLevel = level } },
     )
     val logLines = mutableStateListOf<String>()
 
-    private val session = DesktopRadioSession(object : DesktopRadioSession.Listener {
+    private val session: DesktopRadioSession = DesktopRadioSession(object : DesktopRadioSession.Listener {
         override fun onConnectionState(state: ConnectionState, detail: String?) = ui {
             connection = state
             connectionDetail = detail.orEmpty()
