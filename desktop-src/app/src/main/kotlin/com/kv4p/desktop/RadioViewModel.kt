@@ -53,7 +53,9 @@ class RadioViewModel {
         private set
     var micGain by mutableStateOf(prefs.get(PREF_MIC_GAIN, "None"))
         private set
-    var txRegion by mutableStateOf(prefs.get(PREF_TX_REGION, REGION_1))
+    var txRegion by mutableStateOf(prefs.get(PREF_TX_REGION, REGION_1).let { if (it == REGION_US) it else REGION_1 })
+        private set
+    var highPower by mutableStateOf(prefs.getBoolean(PREF_HIGH_POWER, true))
         private set
 
     private val mic: MicInput = MicInput(
@@ -146,6 +148,7 @@ class RadioViewModel {
 
     private fun onConnected() {
         session.setSquelch(squelch)
+        session.setHighPower(highPower)
         val saved = prefs.getFloat(PREF_FREQ, 0f)
         val current = rxFrequency
         if (saved > 0f && (current == null || current == 0f)) {
@@ -195,6 +198,19 @@ class RadioViewModel {
         session.setMicGainBoost(label)
     }
 
+    fun updateHighPower(high: Boolean) {
+        highPower = high
+        prefs.putBoolean(PREF_HIGH_POWER, high)
+        session.setHighPower(high)
+    }
+
+    /** Volume slider position 0..1: 0.5 = unity gain, 1.0 = +12 dB (quadratic, feels even). */
+    val volumeSlider: Float
+        get() = kotlin.math.sqrt(volume / AudioOutput.MAX_VOLUME)
+
+    fun updateVolumeSlider(position: Float) =
+        updateVolume(AudioOutput.MAX_VOLUME * position * position)
+
     fun updateTxRegion(region: String) {
         txRegion = region
         prefs.put(PREF_TX_REGION, region)
@@ -234,10 +250,11 @@ class RadioViewModel {
         private const val PREF_VOLUME = "volume"
         private const val PREF_MIC_GAIN = "micGain"
         private const val PREF_TX_REGION = "txRegion"
+        private const val PREF_HIGH_POWER = "highPower"
         private const val MAX_LOG_LINES = 400
 
-        const val REGION_1 = "IARU Region 1 (Europe)"
-        const val REGION_US = "US (Android app default)"
+        const val REGION_1 = "IARU R1 (EU)"
+        const val REGION_US = "US"
         val MIC_GAINS = listOf("None", "Low", "Med", "High")
 
         fun limitsFor(region: String): DesktopRadioSession.TxLimits =

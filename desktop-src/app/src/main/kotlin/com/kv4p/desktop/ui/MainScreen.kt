@@ -218,8 +218,8 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
         LabeledSlider("Squelch", "${vm.squelch}", vm.squelch.toFloat(), 0f..8f, steps = 7, enabled = connected) {
             vm.updateSquelch(it.toInt())
         }
-        LabeledSlider("Volume", "${(vm.volume * 100).toInt()}%", vm.volume, 0f..com.kv4p.desktop.AudioOutput.MAX_VOLUME, steps = 0, enabled = true) {
-            vm.updateVolume(it)
+        LabeledSlider("Volume", "${(vm.volumeSlider * 100).toInt()}%", vm.volumeSlider, 0f..1f, steps = 0, enabled = true) {
+            vm.updateVolumeSlider(it)
         }
 
         PttRow(vm, connected)
@@ -297,6 +297,7 @@ private fun PttRow(vm: RadioViewModel, connected: Boolean) {
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Choice("Mic gain", vm.micGain, RadioViewModel.MIC_GAINS, vm::updateMicGain)
+                Choice("TX power", if (vm.highPower) "High" else "Low", listOf("High", "Low")) { vm.updateHighPower(it == "High") }
                 Choice("TX band plan", vm.txRegion, listOf(RadioViewModel.REGION_1, RadioViewModel.REGION_US), vm::updateTxRegion)
             }
         }
