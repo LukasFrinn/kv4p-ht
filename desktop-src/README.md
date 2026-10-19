@@ -4,9 +4,16 @@ Desktop app for the [kv4p HT](https://kv4p.com) radio, connected over USB.
 Targets Linux arm64 (Raspberry Pi OS, Debian 13 / ClockworkPi uConsole),
 Linux x64 and macOS on Apple Silicon.
 
-**Status: step 1 - receive only.** Connects, does the firmware handshake,
-tunes simplex frequencies, plays received audio, shows the S-meter and squelch.
-Transmit (PTT), memories, APRS and FreeDV come next.
+**Status: step 2 - receive and transmit.** Connects, does the firmware
+handshake, tunes simplex frequencies, plays received audio, shows the S-meter
+and squelch, and transmits from the microphone: hold the PTT button, the space
+bar, or the PTT button on the radio. TX is only allowed inside the selected
+band plan (IARU Region 1 by default: 144-146 / 430-440 MHz) and stops
+automatically after 3 minutes, like the Android app. APRS, memories and
+FreeDV come next.
+
+On macOS the first transmit asks for microphone permission. If you denied it,
+re-enable kv4p-ht-desktop in *System Settings > Privacy & Security > Microphone*.
 
 ## How it stays in sync with the Android app
 

@@ -18,8 +18,12 @@ import java.util.concurrent.TimeUnit;
  * by the shared upstream classes (Protocol, RadioModuleController); this
  * class only wires them to a serial port and a listener.
  * <p>
- * All radio logic runs on one thread ("kv4p-radio"), like the Android
- * service's Handler. Listener callbacks are invoked on that thread.
+ * Threads: radio state and controls run on "kv4p-radio" (like the Android
+ * service's Handler). Incoming bytes are parsed on "kv4p-rx", which also
+ * decodes RX audio and applies flow-control window updates directly, so a
+ * sender blocked on the window (microphone audio) can never deadlock the
+ * radio thread. Listener callbacks come from kv4p-radio, except onRxAudio
+ * (kv4p-rx).
  */
 public final class DesktopRadioSession implements AutoCloseable {
     private static final String TAG = DesktopRadioSession.class.getSimpleName();
@@ -35,6 +39,9 @@ public final class DesktopRadioSession implements AutoCloseable {
     /** Same as the released Android app: Opus, 40 ms frames at 48 kHz mono. */
     public static final int AUDIO_SAMPLE_RATE = 48000;
     public static final int AUDIO_FRAME_SAMPLES = 1920;
+
+    /** Same safety limit as the Android app: PTT is released after 3 minutes. */
+    public static final int RUNAWAY_TX_TIMEOUT_SEC = 180;
 
     private static final long FIRST_HELLO_WAIT_MS = 4000;
     private static final long HELLO_TIMEOUT_MS = 12000;
@@ -56,10 +63,34 @@ public final class DesktopRadioSession implements AutoCloseable {
         default void onDeviceState(Protocol.DeviceState state, int sMeter, boolean squelched, boolean txActive) {}
         default void onRxAudio(float[] pcm, int samples) {}
         default void onAx25Packet(byte[] packet) {}
+        /** PTT state changed: by the app, the board's PTT button, or the runaway timer. */
+        default void onTxChanged(boolean transmitting, String reason) {}
+    }
+
+    /** Band edges where transmitting is allowed (MHz). */
+    public static final class TxLimits {
+        public final float min2m, max2m, min70cm, max70cm;
+
+        public TxLimits(float min2m, float max2m, float min70cm, float max70cm) {
+            this.min2m = min2m;
+            this.max2m = max2m;
+            this.min70cm = min70cm;
+            this.max70cm = max70cm;
+        }
+
+        /** IARU Region 1 (Europe, incl. Slovakia): 144-146 and 430-440 MHz. */
+        public static final TxLimits IARU_REGION_1 = new TxLimits(144f, 146f, 430f, 440f);
+        /** The Android app's defaults (US band plan): 144-148 and 420-450 MHz. */
+        public static final TxLimits US = new TxLimits(144f, 148f, 420f, 450f);
     }
 
     private final ScheduledExecutorService radioThread = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "kv4p-radio");
+        t.setDaemon(true);
+        return t;
+    });
+    private final java.util.concurrent.ExecutorService rxThread = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "kv4p-rx");
         t.setDaemon(true);
         return t;
     });
@@ -71,11 +102,21 @@ public final class DesktopRadioSession implements AutoCloseable {
     private final Listener listener;
 
     private DesktopTransport transport;
-    private Protocol.Sender sender;
+    private volatile DesktopTransport activeTransport;
+    private volatile Protocol.Sender sender;
     private ConnectionState state = ConnectionState.DISCONNECTED;
     private ScheduledFuture<?> helloRetry;
     private ScheduledFuture<?> helloTimeout;
     private boolean waitingForHello;
+    private volatile boolean transmitting;
+    private ScheduledFuture<?> runawayTxTimer;
+    private volatile TxLimits txLimits = TxLimits.IARU_REGION_1;
+    private final float[] txPcm = new float[AUDIO_FRAME_SAMPLES];
+    private final byte[] txFrame = new byte[2048];
+    private final OpusUtils.OpusEncoderWrapper opusEncoder =
+        new OpusUtils.OpusEncoderWrapper(AUDIO_SAMPLE_RATE, AUDIO_FRAME_SAMPLES);
+    private volatile MicGainBoost micGainBoost = MicGainBoost.NONE;
+    private float tunedTxFreq;
 
     public DesktopRadioSession(Listener listener) {
         this.listener = listener;
@@ -89,7 +130,7 @@ public final class DesktopRadioSession implements AutoCloseable {
     // ------------------------------------------------------------------ connection
 
     public void connect(String portName) {
-        connectTransport(new SerialPortTransport(portName, radioThread), portName);
+        connectTransport(new SerialPortTransport(portName, rxThread), portName);
     }
 
     /** Package-private so tests can drive the session with a fake transport. */
@@ -98,33 +139,41 @@ public final class DesktopRadioSession implements AutoCloseable {
             closeTransport();
             setState(ConnectionState.CONNECTING, description);
             transport = t;
+            activeTransport = t;
             t.start(new DesktopTransport.Listener() {
                 @Override
                 public void onBytes(byte[] bytes) {
-                    if (transport == t) parser.processBytes(bytes);
+                    // Runs on kv4p-rx (or the caller's thread in tests).
+                    if (activeTransport == t) parser.processBytes(bytes);
                 }
 
                 @Override
                 public void onReady() {
-                    if (transport == t) startHandshake(t);
+                    radioThread.execute(() -> {
+                        if (transport == t) startHandshake(t);
+                    });
                 }
 
                 @Override
                 public void onDisconnected() {
-                    if (transport == t) {
-                        Log.i(TAG, "Radio unplugged");
-                        closeTransport();
-                        setState(ConnectionState.DISCONNECTED, "Radio unplugged");
-                    }
+                    radioThread.execute(() -> {
+                        if (transport == t) {
+                            Log.i(TAG, "Radio unplugged");
+                            closeTransport();
+                            setState(ConnectionState.DISCONNECTED, "Radio unplugged");
+                        }
+                    });
                 }
 
                 @Override
                 public void onError(Exception error) {
-                    if (transport == t) {
-                        Log.w(TAG, "Transport error", error);
-                        closeTransport();
-                        setState(ConnectionState.ERROR, error.getMessage());
-                    }
+                    radioThread.execute(() -> {
+                        if (transport == t) {
+                            Log.w(TAG, "Transport error", error);
+                            closeTransport();
+                            setState(ConnectionState.ERROR, error.getMessage());
+                        }
+                    });
                 }
             });
         });
@@ -144,6 +193,7 @@ public final class DesktopRadioSession implements AutoCloseable {
     public void close() {
         disconnect();
         radioThread.shutdown();
+        rxThread.shutdown();
         try {
             radioThread.awaitTermination(1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
@@ -195,9 +245,13 @@ public final class DesktopRadioSession implements AutoCloseable {
 
     private void closeTransport() {
         cancelHelloTimers();
+        if (transmitting) {
+            stopTx("connection closed");
+        }
         waitingForHello = false;
         radioModule.detachSender();
         sender = null;
+        activeTransport = null;
         if (transport != null) {
             transport.close();
             transport = null;
@@ -216,6 +270,7 @@ public final class DesktopRadioSession implements AutoCloseable {
 
     // ------------------------------------------------------------------ incoming frames
 
+    /** Called on kv4p-rx with the parser's reusable buffer: copy before handing off. */
     private void handleCommand(Protocol.RcvCommand cmd, ByteBuffer param, int offset, int len) {
         switch (cmd) {
             case COMMAND_DEBUG_INFO: Log.i(FIRMWARE_TAG, text(param, offset, len)); break;
@@ -223,15 +278,21 @@ public final class DesktopRadioSession implements AutoCloseable {
             case COMMAND_DEBUG_ERROR: Log.e(FIRMWARE_TAG, text(param, offset, len)); break;
             case COMMAND_DEBUG_WARN: Log.w(FIRMWARE_TAG, text(param, offset, len)); break;
             case COMMAND_DEBUG_TRACE: Log.v(FIRMWARE_TAG, text(param, offset, len)); break;
-            case COMMAND_HELLO: handleHello(Protocol.Hello.from(param, offset, len)); break;
             case COMMAND_RX_AUDIO: handleRxAudio(param, offset, len); break;
             case COMMAND_WINDOW_UPDATE:
                 Protocol.WindowUpdate.from(param, offset, len).ifPresent(w -> {
-                    if (sender != null) sender.enlargeFlowControlWindow(w.getSize());
+                    Protocol.Sender s = sender;
+                    if (s != null) s.enlargeFlowControlWindow(w.getSize());
                 });
                 break;
+            case COMMAND_HELLO: {
+                Optional<Protocol.Hello> hello = Protocol.Hello.from(param, offset, len);
+                radioThread.execute(() -> handleHello(hello));
+                break;
+            }
             case COMMAND_DEVICE_STATE:
-                Protocol.DeviceState.from(param, offset, len).ifPresent(this::handleDeviceState);
+                Protocol.DeviceState.from(param, offset, len)
+                    .ifPresent(ds -> radioThread.execute(() -> handleDeviceState(ds)));
                 break;
             default:
                 break;
@@ -239,6 +300,9 @@ public final class DesktopRadioSession implements AutoCloseable {
     }
 
     private void handleHello(Optional<Protocol.Hello> hello) {
+        if (sender == null) {
+            return; // Stale frame from a connection that is already closed.
+        }
         waitingForHello = false;
         cancelHelloTimers();
         if (!hello.isPresent()) {
@@ -272,8 +336,19 @@ public final class DesktopRadioSession implements AutoCloseable {
 
     private void handleDeviceState(Protocol.DeviceState deviceState) {
         radioModule.updateDeviceState(deviceState);
-        listener.onDeviceState(deviceState, radioModule.getSMeter9Value(),
+        if (radioModule.isAppliedStateInSync() && radioModule.getTxFrequency() > 0) {
+            updateTxAllowed(radioModule.getTxFrequency());
+        }
+        listener.onDeviceState(deviceState, transmitting ? 0 : radioModule.getSMeter9Value(),
             radioModule.isSquelched(), radioModule.isDeviceTxActive());
+        // The board's own PTT button, same handling as the Android app.
+        if (radioModule.didPhysPttChange()) {
+            if (radioModule.isPhysPttDown()) {
+                if (!transmitting) startTx("PTT button on the radio");
+            } else if (transmitting) {
+                stopTx("PTT button on the radio released");
+            }
+        }
     }
 
     private void handleRxAudio(ByteBuffer param, int offset, int len) {
@@ -292,7 +367,7 @@ public final class DesktopRadioSession implements AutoCloseable {
         }
         byte[] packet = new byte[len];
         System.arraycopy(param.array(), offset, packet, 0, len);
-        listener.onAx25Packet(packet);
+        radioThread.execute(() -> listener.onAx25Packet(packet));
     }
 
     private static String text(ByteBuffer param, int offset, int len) {
@@ -300,6 +375,117 @@ public final class DesktopRadioSession implements AutoCloseable {
             return "";
         }
         return new String(param.array(), offset, len, StandardCharsets.UTF_8);
+    }
+
+    // ------------------------------------------------------------------ transmit
+
+    /** Press PTT. Ignored (with a log line) when not connected or TX isn't allowed on this frequency. */
+    public void pttDown() {
+        radioThread.execute(() -> startTx("app"));
+    }
+
+    /** Release PTT. */
+    public void pttUp() {
+        radioThread.execute(() -> {
+            if (transmitting) stopTx("app");
+        });
+    }
+
+    public boolean isTransmitting() {
+        return transmitting;
+    }
+
+    /** Whether the current frequency is inside the TX limits (and the firmware knows it). */
+    public boolean isTxAllowed() {
+        return radioModule.isTxAllowed();
+    }
+
+    public void setTxLimits(TxLimits limits) {
+        radioThread.execute(() -> {
+            txLimits = limits;
+            float tx = radioModule.getTxFrequency();
+            if (tx > 0) updateTxAllowed(tx);
+        });
+    }
+
+    public TxLimits getTxLimits() {
+        return txLimits;
+    }
+
+    /** "None", "Low", "Med" or "High", same as the Android settings. */
+    public void setMicGainBoost(String label) {
+        micGainBoost = MicGainBoost.parse(label);
+    }
+
+    /**
+     * Sends one 40 ms frame of microphone audio (AUDIO_FRAME_SAMPLES samples,
+     * 48 kHz, -1..1). Call from the microphone thread; may block briefly on
+     * the firmware's flow-control window. Dropped when not transmitting.
+     */
+    public void sendTxAudio(float[] samples) {
+        Protocol.Sender s = sender;
+        if (!transmitting || s == null || samples.length < AUDIO_FRAME_SAMPLES) {
+            return;
+        }
+        float gain = micGainBoost.getGain();
+        for (int i = 0; i < AUDIO_FRAME_SAMPLES; i++) {
+            txPcm[i] = Math.max(-1f, Math.min(1f, samples[i] * gain));
+        }
+        int len = opusEncoder.encode(txPcm, txFrame);
+        if (len > 0) {
+            s.txAudio(txFrame, len);
+        }
+    }
+
+    private void startTx(String reason) {
+        if (transmitting) {
+            return;
+        }
+        if (sender == null || state != ConnectionState.CONNECTED) {
+            Log.w(TAG, "PTT ignored: radio not connected");
+            return;
+        }
+        if (!radioModule.isTxAllowed()) {
+            Log.w(TAG, String.format(Locale.US,
+                "PTT ignored: %.4f MHz is outside the allowed TX range",
+                radioModule.getTxFrequency() > 0 ? radioModule.getTxFrequency() : tunedTxFreq));
+            listener.onTxChanged(false, "TX not allowed on this frequency");
+            return;
+        }
+        transmitting = true;
+        radioModule.pttDown();
+        if (runawayTxTimer != null) runawayTxTimer.cancel(false);
+        runawayTxTimer = radioThread.schedule(() -> {
+            if (transmitting) {
+                Log.w(TAG, "Runaway TX timeout (" + RUNAWAY_TX_TIMEOUT_SEC + " s), PTT released");
+                stopTx("TX time limit reached");
+            }
+        }, RUNAWAY_TX_TIMEOUT_SEC, TimeUnit.SECONDS);
+        Log.i(TAG, "TX on (" + reason + ")");
+        listener.onTxChanged(true, reason);
+    }
+
+    private void stopTx(String reason) {
+        transmitting = false;
+        if (runawayTxTimer != null) {
+            runawayTxTimer.cancel(false);
+            runawayTxTimer = null;
+        }
+        if (sender != null) {
+            radioModule.pttUp();
+        }
+        Log.i(TAG, "TX off (" + reason + ")");
+        listener.onTxChanged(false, reason);
+    }
+
+    private void updateTxAllowed(float txFrequency) {
+        TxLimits l = txLimits;
+        boolean uhf = radioModule.getRfModuleType() == Protocol.RfModuleType.RF_SA818_UHF;
+        float min = uhf ? l.min70cm : l.min2m;
+        float max = uhf ? l.max70cm : l.max2m;
+        float half = radioModule.getHalfBandwidthMhz();
+        // Same rule as the Android app: the whole channel must fit inside the band.
+        radioModule.setTxAllowed(txFrequency >= min + half && txFrequency <= max - half);
     }
 
     // ------------------------------------------------------------------ controls
@@ -314,6 +500,8 @@ public final class DesktopRadioSession implements AutoCloseable {
                 radioModule.setRxFrequency(freqMhz);
                 radioModule.setTxTone((byte) 0);
                 radioModule.setRxTone((byte) 0);
+                tunedTxFreq = freqMhz;
+                updateTxAllowed(freqMhz);
             } finally {
                 radioModule.endUpdate();
             }

@@ -15,6 +15,10 @@ class AudioOutput {
     private var line: SourceDataLine? = null
     private val bytes = ByteArray(DesktopRadioSession.AUDIO_FRAME_SAMPLES * 2)
 
+    /** Silences playback while transmitting, like the Android app. */
+    @Volatile
+    var muted: Boolean = false
+
     /** 0.0 .. 1.0 */
     @Volatile
     var volume: Float = 0.8f
@@ -47,6 +51,7 @@ class AudioOutput {
     /** Called on the radio thread for every decoded frame. */
     fun write(pcm: FloatArray, samples: Int) {
         val l = line ?: return
+        if (muted) return
         val gain = volume * 32767f
         var j = 0
         for (i in 0 until samples) {

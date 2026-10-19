@@ -1,6 +1,10 @@
 package com.kv4p.desktop
 
 import android.util.Log
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -33,6 +37,18 @@ private fun runUi() {
             },
             title = "kv4p HT",
             state = rememberWindowState(size = DpSize(1280.dp, 720.dp)),
+            // Space bar = PTT. onKeyEvent only sees keys no focused text field used.
+            onKeyEvent = { event ->
+                if (event.key == Key.Spacebar) {
+                    when (event.type) {
+                        KeyEventType.KeyDown -> vm.pttDown()
+                        KeyEventType.KeyUp -> vm.pttUp()
+                    }
+                    true
+                } else {
+                    false
+                }
+            },
         ) {
             Kv4pTheme { MainScreen(vm) }
         }

@@ -40,7 +40,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -205,12 +207,12 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
         Text(
             text = when {
                 !connected -> ""
-                vm.txActive -> "TX"
+                vm.transmitting || vm.txActive -> "TX · transmitting"
                 vm.squelched -> "RX · squelched"
                 else -> "RX · receiving"
             },
             style = MaterialTheme.typography.labelLarge,
-            color = if (vm.txActive) Kv4pColors.Accent else Kv4pColors.PrimaryDeselected,
+            color = if (vm.transmitting || vm.txActive) Kv4pColors.Accent else Kv4pColors.PrimaryDeselected,
         )
 
         LabeledSlider("Squelch", "${vm.squelch}", vm.squelch.toFloat(), 0f..8f, steps = 7, enabled = connected) {
@@ -219,6 +221,8 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
         LabeledSlider("Volume", "${(vm.volume * 100).toInt()}%", vm.volume, 0f..1f, steps = 0, enabled = true) {
             vm.updateVolume(it)
         }
+
+        PttRow(vm, connected)
 
         Spacer(Modifier.weight(1f))
         vm.firmware?.let { fw ->
@@ -229,11 +233,88 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
                 color = Kv4pColors.PrimaryDeselected,
             )
         }
-        Text(
-            "Transmit (PTT) comes in the next step - this build is receive-only.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Kv4pColors.MediumGray,
-        )
+    }
+}
+
+/** Hold-to-talk button, mic level, mic gain and TX band plan. Space bar also works as PTT. */
+@Composable
+private fun PttRow(vm: RadioViewModel, connected: Boolean) {
+    val canTx = connected && vm.txAllowed
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(width = 160.dp, height = 72.dp)
+                .clip(RoundedCornerShape(36.dp))
+                .background(
+                    when {
+                        vm.transmitting -> Kv4pColors.Accent
+                        canTx -> Kv4pColors.MediumGray
+                        else -> Kv4pColors.PrimaryVeryFaint
+                    }
+                )
+                .border(1.dp, if (canTx) Kv4pColors.Primary else Kv4pColors.MediumGray, RoundedCornerShape(36.dp))
+                .pointerInput(canTx) {
+                    if (!canTx) return@pointerInput
+                    detectTapGestures(onPress = {
+                        vm.pttDown()
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            vm.pttUp()
+                        }
+                    })
+                },
+        ) {
+            Text(
+                if (vm.transmitting) "TX" else "PTT",
+                fontSize = 26.sp,
+                fontFamily = Jost,
+                color = if (canTx || vm.transmitting) Kv4pColors.Primary else Kv4pColors.MediumGray,
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                when {
+                    !connected -> "Connect the radio to transmit"
+                    vm.txMessage.isNotEmpty() -> vm.txMessage
+                    !vm.txAllowed -> "TX not allowed here (${vm.txRangeLabel}, ${vm.txRegion})"
+                    vm.transmitting -> "Release to stop · auto-stop after 3 min"
+                    else -> "Hold the button or the space bar to talk"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (vm.txMessage.isNotEmpty()) Kv4pColors.Accent else Kv4pColors.PrimaryDeselected,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Mic", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(40.dp))
+                Box(Modifier.width(200.dp).height(8.dp).clip(RoundedCornerShape(4.dp)).background(Kv4pColors.PrimaryVeryFaint)) {
+                    Box(
+                        Modifier.fillMaxHeight()
+                            .fillMaxWidth((vm.micLevel * 1.5f).coerceIn(0f, 1f))
+                            .background(if (vm.micLevel > 0.9f) Kv4pColors.Accent else Kv4pColors.Primary)
+                    )
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Choice("Mic gain", vm.micGain, RadioViewModel.MIC_GAINS, vm::updateMicGain)
+                Choice("TX band plan", vm.txRegion, listOf(RadioViewModel.REGION_1, RadioViewModel.REGION_US), vm::updateTxRegion)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Choice(label: String, value: String, options: List<String>, onPick: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { open = true }) {
+            Text("$label: $value", style = MaterialTheme.typography.bodySmall)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(option) }, onClick = { onPick(option); open = false })
+            }
+        }
     }
 }
 

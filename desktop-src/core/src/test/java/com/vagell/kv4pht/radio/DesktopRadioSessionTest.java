@@ -24,9 +24,11 @@ public class DesktopRadioSessionTest {
     private static final int CMD_HELLO = 0x06;
     private static final int CMD_RX_AUDIO = 0x07; // Opus, release v2.0.0.1
     private static final int CMD_HOST_DESIRED_STATE = 0x0D;
+    private static final int CMD_HOST_TX_AUDIO = 0x07; // release v2.0.0.1
 
     private final List<DesktopRadioSession.ConnectionState> states = new CopyOnWriteArrayList<>();
     private final List<Integer> rxAudioSamples = new CopyOnWriteArrayList<>();
+    private final List<Boolean> txEvents = new CopyOnWriteArrayList<>();
     private volatile Protocol.FirmwareVersion helloVersion;
     private FakeTransport transport;
     private DesktopRadioSession session;
@@ -42,6 +44,11 @@ public class DesktopRadioSessionTest {
             @Override
             public void onHello(Protocol.FirmwareVersion version) {
                 helloVersion = version;
+            }
+
+            @Override
+            public void onTxChanged(boolean transmitting, String reason) {
+                txEvents.add(transmitting);
             }
 
             @Override
@@ -120,7 +127,61 @@ public class DesktopRadioSessionTest {
         assertEquals(List.of(DesktopRadioSession.AUDIO_FRAME_SAMPLES), rxAudioSamples);
     }
 
+    @Test
+    public void pttInsideBandRequestsTxAndReleases() throws Exception {
+        feed(vendorFrame(CMD_HELLO, hello(DesktopRadioSession.MIN_FIRMWARE_VER, 'f')));
+        session.tuneSimplex(145.5f);
+        session.pttDown();
+        session.runOnRadioThreadAndWait(() -> { });
+        assertTrue(session.isTransmitting());
+        assertTrue("PTT flag sent", (desiredFlags() & Protocol.HOST_STATE_PTT_REQUESTED) != 0);
+        assertEquals(List.of(true), txEvents);
+
+        session.pttUp();
+        session.runOnRadioThreadAndWait(() -> { });
+        assertTrue(!session.isTransmitting());
+        assertTrue("PTT flag cleared", (desiredFlags() & Protocol.HOST_STATE_PTT_REQUESTED) == 0);
+    }
+
+    @Test
+    public void pttOutsideRegion1BandIsRefused() throws Exception {
+        feed(vendorFrame(CMD_HELLO, hello(DesktopRadioSession.MIN_FIRMWARE_VER, 'f')));
+        session.tuneSimplex(147.0f); // allowed in the US, not in IARU Region 1
+        session.pttDown();
+        session.runOnRadioThreadAndWait(() -> { });
+        assertTrue(!session.isTransmitting());
+        assertTrue((desiredFlags() & Protocol.HOST_STATE_PTT_REQUESTED) == 0);
+        assertTrue((desiredFlags() & Protocol.HOST_STATE_TX_ALLOWED) == 0);
+    }
+
+    @Test
+    public void txAudioIsSentAsOpusWhileTransmitting() throws Exception {
+        feed(vendorFrame(CMD_HELLO, hello(DesktopRadioSession.MIN_FIRMWARE_VER, 'f')));
+        session.tuneSimplex(145.5f);
+        float[] mic = new float[DesktopRadioSession.AUDIO_FRAME_SAMPLES];
+        session.sendTxAudio(mic);                 // not transmitting: dropped
+        assertEquals(0, countFrames(CMD_HOST_TX_AUDIO));
+        session.pttDown();
+        session.runOnRadioThreadAndWait(() -> { });
+        session.sendTxAudio(mic);
+        session.sendTxAudio(mic);
+        assertEquals(2, countFrames(CMD_HOST_TX_AUDIO));
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    private int desiredFlags() {
+        return ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN).getShort(8) & 0xFFFF;
+    }
+
+    private int countFrames(int command) {
+        int n = 0;
+        for (byte[] frame : transport.writes) {
+            byte[] raw = unescape(frame);
+            if (raw.length > 6 && (raw[0] & 0xFF) == 0x06 && (raw[6] & 0xFF) == command) n++;
+        }
+        return n;
+    }
 
     private void feed(byte[] bytes) throws Exception {
         session.runOnRadioThreadAndWait(() -> transport.listener.onBytes(bytes));

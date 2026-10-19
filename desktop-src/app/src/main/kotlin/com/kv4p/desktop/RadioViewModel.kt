@@ -41,6 +41,25 @@ class RadioViewModel {
         private set
     var volume by mutableStateOf(prefs.getFloat(PREF_VOLUME, 0.8f))
         private set
+
+    /** True while we are transmitting (app PTT, keyboard or the radio's PTT button). */
+    var transmitting by mutableStateOf(false)
+        private set
+    var txMessage by mutableStateOf("")
+        private set
+    var txAllowed by mutableStateOf(false)
+        private set
+    var micLevel by mutableStateOf(0f)
+        private set
+    var micGain by mutableStateOf(prefs.get(PREF_MIC_GAIN, "None"))
+        private set
+    var txRegion by mutableStateOf(prefs.get(PREF_TX_REGION, REGION_1))
+        private set
+
+    private val mic = MicInput(
+        onFrame = { frame -> session.sendTxAudio(frame) },
+        onLevel = { level -> ui { micLevel = level } },
+    )
     val logLines = mutableStateListOf<String>()
 
     private val session = DesktopRadioSession(object : DesktopRadioSession.Listener {
@@ -66,6 +85,30 @@ class RadioViewModel {
             this@RadioViewModel.sMeter = sMeter
             this@RadioViewModel.squelched = squelched
             this@RadioViewModel.txActive = txActive
+            this@RadioViewModel.txAllowed = session.isTxAllowed
+        }
+
+        override fun onTxChanged(transmitting: Boolean, reason: String) {
+            // Radio thread: start/stop the microphone right away, then update the UI.
+            if (transmitting) {
+                audio.muted = true
+                if (!mic.start()) {
+                    session.pttUp()
+                    ui { txMessage = "Microphone could not be opened - see log" }
+                    return
+                }
+            } else {
+                mic.stop()
+                audio.muted = false
+            }
+            ui {
+                this@RadioViewModel.transmitting = transmitting
+                txMessage = when {
+                    transmitting -> ""
+                    reason == "app" || reason.contains("released") -> ""
+                    else -> reason
+                }
+            }
         }
 
         override fun onRxAudio(pcm: FloatArray, samples: Int) = audio.write(pcm, samples)
@@ -73,6 +116,8 @@ class RadioViewModel {
 
     init {
         audio.volume = volume
+        session.setMicGainBoost(micGain)
+        session.setTxLimits(limitsFor(txRegion))
         AppLog.addListener { line ->
             ui {
                 logLines += line
@@ -136,7 +181,39 @@ class RadioViewModel {
         prefs.putFloat(PREF_VOLUME, value)
     }
 
+    fun pttDown() {
+        if (connection != ConnectionState.CONNECTED || transmitting) return
+        txMessage = ""
+        session.pttDown()
+    }
+
+    fun pttUp() = session.pttUp()
+
+    fun updateMicGain(label: String) {
+        micGain = label
+        prefs.put(PREF_MIC_GAIN, label)
+        session.setMicGainBoost(label)
+    }
+
+    fun updateTxRegion(region: String) {
+        txRegion = region
+        prefs.put(PREF_TX_REGION, region)
+        session.setTxLimits(limitsFor(region))
+    }
+
+    val txRangeLabel: String
+        get() {
+            val l = limitsFor(txRegion)
+            return if (firmware?.moduleType == Protocol.RfModuleType.RF_SA818_UHF) {
+                "${l.min70cm.toInt()}-${l.max70cm.toInt()} MHz"
+            } else {
+                "${l.min2m.toInt()}-${l.max2m.toInt()} MHz"
+            }
+        }
+
     fun shutdown() {
+        session.pttUp()
+        mic.stop()
         session.close()
         audio.stop()
     }
@@ -155,7 +232,16 @@ class RadioViewModel {
         private const val PREF_FREQ = "frequency"
         private const val PREF_SQUELCH = "squelch"
         private const val PREF_VOLUME = "volume"
+        private const val PREF_MIC_GAIN = "micGain"
+        private const val PREF_TX_REGION = "txRegion"
         private const val MAX_LOG_LINES = 400
+
+        const val REGION_1 = "IARU Region 1 (Europe)"
+        const val REGION_US = "US (Android app default)"
+        val MIC_GAINS = listOf("None", "Low", "Med", "High")
+
+        fun limitsFor(region: String): DesktopRadioSession.TxLimits =
+            if (region == REGION_US) DesktopRadioSession.TxLimits.US else DesktopRadioSession.TxLimits.IARU_REGION_1
 
         fun formatFrequency(freq: Float?): String =
             if (freq == null || freq == 0f) "---.----" else String.format(Locale.US, "%.4f", freq)
