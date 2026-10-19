@@ -6,8 +6,10 @@ set -o pipefail
 "$@" 2>&1 | tee gradle-output.log
 status=$?
 if [ $status -ne 0 ]; then
-  grep -E '^e: |FAILED$|^\s+(java\.|org\.junit\.|kotlin\.)[A-Za-z.]*(Error|Exception)|^\s+at com\.vagell|^\s+at com\.kv4p|^\* What went wrong|^> ' gradle-output.log \
-    | head -40 \
+  { grep -E '^e: |FAILED$|^\s+(java\.|org\.junit\.|kotlin\.)[A-Za-z.]*(Error|Exception)|^\s+at com\.(vagell|kv4p)' gradle-output.log
+    grep -A12 '^\* What went wrong' gradle-output.log | grep -v '^\* Try:' ; } \
+    | grep -v '^> Task ' \
+    | head -45 \
     | while IFS= read -r line; do echo "::error title=gradle::${line}"; done
 fi
 exit $status
