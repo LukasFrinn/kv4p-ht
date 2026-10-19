@@ -21,7 +21,7 @@ if ! command -v gh >/dev/null; then
   exit 1
 fi
 
-echo "Looking for the latest successful build of $REPO ($BRANCH)…"
+echo "Looking for the latest successful build of $REPO ($BRANCH)..."
 RUN_ID=$(gh run list -R "$REPO" -b "$BRANCH" -w "Desktop App" -s success -L 1 --json databaseId -q '.[0].databaseId')
 if [ -z "$RUN_ID" ]; then
   echo "No successful build found." >&2
@@ -31,12 +31,12 @@ fi
 TMP=$(mktemp -d)
 trap 'hdiutil detach "$TMP/mnt" -quiet 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
-echo "Downloading build $RUN_ID…"
+echo "Downloading build ${RUN_ID}..."
 gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$TMP"
 DMG=$(find "$TMP" -name '*.dmg' | head -1)
 [ -n "$DMG" ] || { echo "No .dmg in the build." >&2; exit 1; }
 
-echo "Installing to $DEST…"
+echo "Installing to ${DEST}..."
 mkdir -p "$TMP/mnt"
 hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$TMP/mnt" -quiet
 APP=$(find "$TMP/mnt" -maxdepth 1 -name '*.app' | head -1)
