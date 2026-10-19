@@ -5,6 +5,8 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -29,6 +31,9 @@ fun main(args: Array<String>) {
 
 private fun runUi() {
     val vm = RadioViewModel()
+    val appIcon = Thread.currentThread().contextClassLoader
+        ?.getResourceAsStream("kv4p.png")
+        ?.use { BitmapPainter(loadImageBitmap(it)) }
     application {
         Window(
             onCloseRequest = {
@@ -36,6 +41,7 @@ private fun runUi() {
                 exitApplication()
             },
             title = "kv4p HT",
+            icon = appIcon,
             state = rememberWindowState(size = DpSize(1280.dp, 720.dp)),
             // Space bar = PTT. onKeyEvent only sees keys no focused text field used.
             onKeyEvent = { event ->

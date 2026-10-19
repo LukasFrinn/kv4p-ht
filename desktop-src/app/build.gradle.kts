@@ -24,6 +24,8 @@ tasks.processResources {
         include("jost_variable.ttf")
         into("font")
     }
+    // Window/taskbar icon (generated from the project's artwork/app-icon.svg).
+    from("icons") { include("kv4p.png") }
 }
 
 val appVersion = (findProperty("appVersion") as String?) ?: "1.0.0"
@@ -43,12 +45,14 @@ compose.desktop {
             includeAllModules = true
 
             linux {
+                iconFile.set(project.file("icons/kv4p.png"))
                 packageName = "kv4p-ht-desktop"
                 debMaintainer = "kv4p-ht-desktop@users.noreply.github.com"
                 appCategory = "HamRadio"
                 menuGroup = "HamRadio"
             }
             macOS {
+                iconFile.set(project.file("icons/kv4p.icns"))
                 bundleID = "com.kv4p.desktop"
                 appCategory = "public.app-category.utilities"
                 infoPlist {
