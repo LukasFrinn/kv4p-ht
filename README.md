@@ -28,12 +28,12 @@ there for installing, usage and building.
 
 | Feature | Status |
 |---|---|
-| USB connection, firmware handshake | ✅ done (testing on hardware) |
-| Receive: tuning, audio, S-meter, squelch | ✅ done (testing on hardware) |
-| Transmit (PTT, microphone) | 🔜 next |
+| USB connection, firmware handshake | ✅ done (verified on macOS) |
+| Receive: tuning, audio, S-meter, squelch | ✅ done (verified on macOS) |
+| Transmit: PTT button / space bar / radio PTT, microphone | ✅ done (verified on macOS) |
+| APRS | 🔜 next |
 | Memories / channels | planned |
-| APRS | planned |
-| FreeDV 2400B digital voice | planned |
+| FreeDV 2400B digital voice | waits for the next upstream firmware release |
 | Firmware flashing | planned (use the web flasher on kv4p.com meanwhile) |
 
 Works with the official **v2.0.0.1** release firmware (v17) - the one the Google Play
