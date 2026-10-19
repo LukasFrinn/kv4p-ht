@@ -13,7 +13,8 @@ automatically after 3 minutes, like the Android app. APRS, memories and
 FreeDV come next.
 
 On macOS the first transmit asks for microphone permission. If you denied it,
-re-enable kv4p-ht-desktop in *System Settings > Privacy & Security > Microphone*.
+re-enable kv4p-ht-desktop in *System Settings > Privacy & Security > Microphone*
+(builds before the ad-hoc signing fix never appeared there and recorded silence).
 
 ## How it stays in sync with the Android app
 
@@ -60,9 +61,21 @@ sudo usermod -aG dialout $USER   # serial port access; log out and back in
 
 The app is installed to `/opt/kv4p-ht-desktop/bin/kv4p-ht-desktop` and appears in the menu.
 
-**macOS (.dmg)** - the build is not signed. After dragging the app to
-Applications, right-click it → *Open* the first time (or run
-`xattr -dr com.apple.quarantine "/Applications/kv4p-ht-desktop.app"`).
+**macOS** - recommended: install and update with the script, which avoids the
+"unidentified developer" warning (needs the GitHub CLI once: `brew install gh && gh auth login`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/LukasFrinn/kv4p-ht/desktop-app/desktop-src/scripts/install-macos.sh | bash
+```
+
+Or download the `.dmg` from Actions by hand; the app is ad-hoc signed but not
+notarized, so after dragging it to Applications run
+`xattr -dr com.apple.quarantine "/Applications/kv4p-ht-desktop.app"` (or
+right-click → *Open* the first time). Removing the warning completely needs
+an Apple Developer ID (paid) for signing and notarization.
+
+The first PTT asks for microphone access. Because each build has a new ad-hoc
+signature, macOS may ask again after an update.
 The board's CP2102N USB chip should appear as `/dev/cu.usbserial-…`; if it
 doesn't, install the Silicon Labs CP210x VCP driver.
 

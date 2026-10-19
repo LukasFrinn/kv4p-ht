@@ -35,7 +35,7 @@ jobs:
             artifact: kv4p-ht-desktop-linux-arm64
           - name: macOS Apple Silicon (.dmg)
             os: macos-15
-            package: packageDmg
+            package: createDistributable   # signed and turned into a .dmg below
             artifact: kv4p-ht-desktop-macos-arm64
           - name: Linux x64 (.deb)
             os: ubuntu-24.04
@@ -61,6 +61,23 @@ jobs:
       - name: Build packages
         shell: bash
         run: ../.github/scripts/gradle-annotate.sh ./gradlew :app:${{ matrix.package }} :app:packageUberJarForCurrentOS -PappVersion=1.0.${{ github.run_number }}
+
+      - name: Sign macOS app (ad-hoc, hardened runtime, microphone entitlement)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP=$(echo app/build/compose/binaries/main/app/*.app)
+          # Without a valid signature carrying com.apple.security.device.audio-input,
+          # macOS never shows the microphone prompt and the app records silence.
+          codesign --force --deep --options runtime --timestamp=none \
+            --entitlements app/macos/entitlements.plist --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -d --entitlements - --xml "$APP" 2>&1 | grep audio-input > /dev/null
+          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$APP/Contents/Info.plist"
+          mkdir -p app/build/compose/binaries/main/dmg
+          hdiutil create -volname "kv4p HT" -srcfolder "$APP" -ov -format UDZO \
+            app/build/compose/binaries/main/dmg/kv4p-ht-desktop-1.0.${{ github.run_number }}.dmg
 
       - uses: actions/upload-artifact@v7
         with:
