@@ -34,7 +34,7 @@ jobs:
             package: packageDeb
             artifact: kv4p-ht-desktop-linux-arm64
           - name: macOS Apple Silicon (.dmg)
-            os: macos-15
+            os: macos-latest   # arm64; avoids the busy macos-15 queue
             package: createDistributable   # signed and turned into a .dmg below
             artifact: kv4p-ht-desktop-macos-arm64
           - name: Linux x64 (.deb)
