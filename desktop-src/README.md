@@ -117,7 +117,7 @@ the web flasher on kv4p.com.
 ## Troubleshooting
 
 Logs are written to `~/.kv4p-desktop/kv4p.log` (previous run: `kv4p.log.1`)
-and shown in the app's log panel.
+and shown in the app's Debug window (Debug button, top right).
 
 Headless check, useful over SSH:
 

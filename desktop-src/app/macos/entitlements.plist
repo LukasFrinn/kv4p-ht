@@ -15,5 +15,8 @@
     <!-- Microphone for transmitting. Without this macOS silently delivers silence. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Location Services for the APRS "Use this computer's location" button. -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
 </dict>
 </plist>

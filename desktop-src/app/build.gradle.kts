@@ -28,6 +28,21 @@ tasks.processResources {
     from("icons") { include("kv4p.png") }
 }
 
+// macOS: small Swift helper that asks Location Services for the Mac's position (APRS beacon).
+// Compose ships <appResources>/macos-arm64 inside the .app (compose.application.resources.dir).
+val isMacHost = System.getProperty("os.name").lowercase().contains("mac")
+val macArch = if (System.getProperty("os.arch") == "aarch64") "arm64" else "x64"
+val appResources = layout.buildDirectory.dir("appResources")
+val buildLocateHelper by tasks.registering(Exec::class) {
+    val source = file("macos/locate/main.swift")
+    val output = appResources.map { it.file("macos-$macArch/kv4p-locate") }
+    onlyIf { isMacHost }
+    inputs.file(source)
+    outputs.file(output)
+    doFirst { output.get().asFile.parentFile.mkdirs() }
+    commandLine("swiftc", "-O", source.absolutePath, "-o", output.get().asFile.absolutePath)
+}
+
 val appVersion = (findProperty("appVersion") as String?) ?: "1.0.0"
 
 compose.desktop {
@@ -41,6 +56,7 @@ compose.desktop {
             description = "Desktop app for the kv4p HT radio"
             vendor = "kv4p HT community"
             licenseFile.set(rootDir.resolve("../LICENSE"))
+            appResourcesRootDir.set(appResources)
             // Simple and safe for a first version; can be trimmed later with suggestRuntimeModules.
             includeAllModules = true
 
@@ -59,9 +75,15 @@ compose.desktop {
                     extraKeysRawXml = """
                         <key>NSMicrophoneUsageDescription</key>
                         <string>The microphone is used to transmit your voice through the radio.</string>
+                        <key>NSLocationUsageDescription</key>
+                        <string>Your location is filled into the APRS position beacon when you ask for it.</string>
+                        <key>NSLocationWhenInUseUsageDescription</key>
+                        <string>Your location is filled into the APRS position beacon when you ask for it.</string>
                     """.trimIndent()
                 }
             }
         }
     }
 }
+
+tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildLocateHelper) }

@@ -5,6 +5,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -57,15 +62,23 @@ import com.kv4p.desktop.AppLog
 import com.kv4p.desktop.RadioViewModel
 import com.vagell.kv4pht.radio.DesktopRadioSession.ConnectionState
 
+/** Widest the content gets; extra window width is left empty around it. */
+val MaxContentWidth = 780.dp
+
 /**
- * Main window. Laid out for 1280x720 (ClockworkPi uConsole) and up:
- * connection bar on top, then the Radio tab (radio face + log) or the APRS tab.
+ * Main window: connection bar on top, then the Radio tab (radio face with the memories
+ * below it) or the APRS tab. The log lives in a separate Debug window (Main.kt).
  */
 @Composable
 fun MainScreen(vm: RadioViewModel) {
     var tab by remember { mutableStateOf(0) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Column(
+            Modifier.fillMaxSize()
+                .wrapContentWidth(Alignment.CenterHorizontally)
+                .widthIn(max = MaxContentWidth)
+                .padding(12.dp)
+        ) {
             ConnectionBar(vm)
             Spacer(Modifier.height(8.dp))
             TabRow(selectedTabIndex = tab, containerColor = Kv4pColors.Black, modifier = Modifier.width(360.dp)) {
@@ -76,14 +89,34 @@ fun MainScreen(vm: RadioViewModel) {
             }
             Spacer(Modifier.height(8.dp))
             if (tab == 0) {
-                Row(Modifier.fillMaxSize()) {
-                    RadioFace(vm, Modifier.weight(1f).fillMaxHeight())
-                    Spacer(Modifier.width(12.dp))
-                    SidePanel(vm, Modifier.width(440.dp).fillMaxHeight())
-                }
+                RadioTab(vm)
             } else {
                 AprsScreen(vm, Modifier.fillMaxSize())
             }
+        }
+    }
+}
+
+/** Rough height of the radio face, used to give the memories the rest of the window. */
+private val RadioFaceHeight = 470.dp
+
+/**
+ * Radio face with the memories under it. On short screens (uConsole, 720 px) the whole
+ * tab scrolls and the memory list keeps a usable minimum height.
+ */
+@Composable
+private fun RadioTab(vm: RadioViewModel) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val memoriesHeight = (maxHeight - RadioFaceHeight - 12.dp).coerceAtLeast(320.dp)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            RadioFace(vm, Modifier.fillMaxWidth())
+            Spacer(Modifier.height(12.dp))
+            MemoriesPanel(
+                vm,
+                Modifier.fillMaxWidth().height(memoriesHeight)
+                    .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+            )
         }
     }
 }
@@ -123,7 +156,11 @@ private fun ConnectionBar(vm: RadioViewModel) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,
+            modifier = Modifier.weight(1f),
         )
+        TextButton(onClick = { vm.debugOpen = !vm.debugOpen }) {
+            Text(if (vm.debugOpen) "Hide debug" else "Debug", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -162,8 +199,8 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
     Column(
         modifier
             .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         val active = vm.activeMemory
         Text(
@@ -251,7 +288,6 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
 
         PttRow(vm, connected)
 
-        Spacer(Modifier.weight(1f))
         vm.firmware?.let { fw ->
             Text(
                 "Firmware v${fw.ver} · ${vm.bandLabel} module · ${fw.minRadioFreq}-${fw.maxRadioFreq} MHz" +
@@ -412,32 +448,15 @@ private fun LabeledSlider(
     }
 }
 
-/** Right side of the Radio tab: memories or the log. */
+/** Contents of the Debug window: the live log, with a copy button. */
 @Composable
-private fun SidePanel(vm: RadioViewModel, modifier: Modifier) {
-    var tab by remember { mutableStateOf(0) }
-    Column(modifier.border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp)).padding(8.dp)) {
-        TabRow(selectedTabIndex = tab, containerColor = Kv4pColors.Black) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Memories") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Log") })
-        }
-        Spacer(Modifier.height(6.dp))
-        if (tab == 0) {
-            MemoriesPanel(vm, Modifier.fillMaxWidth().weight(1f))
-        } else {
-            LogPanel(vm, Modifier.fillMaxWidth().weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun LogPanel(vm: RadioViewModel, modifier: Modifier) {
+fun LogPanel(vm: RadioViewModel, modifier: Modifier) {
     val listState = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
     LaunchedEffect(vm.logLines.size) {
         if (vm.logLines.isNotEmpty()) listState.scrollToItem(vm.logLines.lastIndex)
     }
-    Column(modifier) {
+    Column(modifier.padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Log", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             TextButton(onClick = { clipboard.setText(AnnotatedString(vm.logLines.joinToString("\n"))) }) {

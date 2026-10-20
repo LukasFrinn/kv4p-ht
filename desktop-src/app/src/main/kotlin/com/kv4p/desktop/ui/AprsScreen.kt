@@ -70,7 +70,7 @@ fun AprsScreen(vm: RadioViewModel, modifier: Modifier = Modifier) {
             ChatInput(vm)
         }
         Spacer(Modifier.width(12.dp))
-        AprsSettings(vm, Modifier.width(400.dp).fillMaxHeight())
+        AprsSettings(vm, Modifier.width(300.dp).fillMaxHeight())
     }
 }
 
@@ -268,6 +268,16 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        OutlinedButton(
+            onClick = { vm.usePcLocation { position = it } },
+            enabled = !vm.locating,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(if (vm.locating) "Locating…" else "Use this computer's location")
+        }
+        if (vm.locateStatus.isNotEmpty()) {
+            Text(vm.locateStatus, style = MaterialTheme.typography.labelSmall, color = Kv4pColors.MediumGray)
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = vm.aprsApprox, onCheckedChange = { vm.updateAprsSettings(approx = it) })
             Text("Send approximate position (~1 km)", style = MaterialTheme.typography.bodySmall)

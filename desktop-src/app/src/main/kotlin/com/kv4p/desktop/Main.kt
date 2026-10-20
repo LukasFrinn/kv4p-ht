@@ -13,7 +13,13 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.kv4p.desktop.ui.Kv4pTheme
+import com.kv4p.desktop.ui.LogPanel
 import com.kv4p.desktop.ui.MainScreen
+import com.kv4p.desktop.ui.MaxContentWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
 import com.vagell.kv4pht.radio.DesktopRadioSession
 import com.vagell.kv4pht.radio.Protocol
 import java.util.concurrent.CountDownLatch
@@ -42,7 +48,7 @@ private fun runUi() {
             },
             title = "kv4p HT",
             icon = appIcon,
-            state = rememberWindowState(size = DpSize(1280.dp, 720.dp)),
+            state = rememberWindowState(size = initialWindowSize()),
             // Space bar = PTT. onKeyEvent only sees keys no focused text field used.
             onKeyEvent = { event ->
                 if (event.key == Key.Spacebar) {
@@ -58,7 +64,30 @@ private fun runUi() {
         ) {
             Kv4pTheme { MainScreen(vm) }
         }
+        if (vm.debugOpen) {
+            Window(
+                onCloseRequest = { vm.debugOpen = false },
+                title = "kv4p HT - Debug log",
+                icon = appIcon,
+                state = rememberWindowState(size = DpSize(760.dp, 520.dp)),
+            ) {
+                Kv4pTheme {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        LogPanel(vm, Modifier.fillMaxSize())
+                    }
+                }
+            }
+        }
     }
+}
+
+/** Narrow, tall window that still fits short screens such as the uConsole's 1280x720. */
+private fun initialWindowSize(): DpSize {
+    val screen = runCatching {
+        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+    }.getOrNull()
+    val height = screen?.height?.minus(20)?.coerceIn(600, 960) ?: 900
+    return DpSize(MaxContentWidth + 20.dp, height.dp)
 }
 
 private fun listPorts() {

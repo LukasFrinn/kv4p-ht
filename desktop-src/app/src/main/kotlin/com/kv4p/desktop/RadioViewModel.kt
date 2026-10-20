@@ -136,6 +136,8 @@ class RadioViewModel {
         onLevel = { level -> ui { micLevel = level } },
     )
     val logLines = mutableStateListOf<String>()
+    /** Debug window with the live log (hidden in normal use). */
+    var debugOpen by mutableStateOf(false)
 
     private val session: DesktopRadioSession = DesktopRadioSession(object : DesktopRadioSession.Listener {
         override fun onConnectionState(state: ConnectionState, detail: String?) = ui {
@@ -424,6 +426,31 @@ class RadioViewModel {
     }
 
     val myPosition: DoubleArray? get() = parsePosition(aprsPosition)
+
+    var locating by mutableStateOf(false)
+        private set
+    /** Result of the last "use this computer's location" lookup, shown under the button. */
+    var locateStatus by mutableStateOf("")
+        private set
+
+    /** Fills the APRS position with this computer's current location (see [PcLocation]). */
+    fun usePcLocation(onPosition: (String) -> Unit) {
+        if (locating) return
+        locating = true
+        locateStatus = "Looking up this computer's location…"
+        Thread({
+            val result = runCatching { PcLocation.locate() }
+            ui {
+                locating = false
+                result.onSuccess { fix ->
+                    val text = String.format(java.util.Locale.US, "%.5f, %.5f", fix.lat, fix.lon)
+                    updateAprsSettings(position = text)
+                    onPosition(text)
+                    locateStatus = "From ${fix.describe()}"
+                }.onFailure { locateStatus = it.message ?: "Location not available" }
+            }
+        }, "kv4p-locate").apply { isDaemon = true }.start()
+    }
 
     fun updateAprsSettings(
         callsign: String = aprsCallsign,
