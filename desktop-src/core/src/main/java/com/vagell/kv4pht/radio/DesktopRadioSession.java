@@ -45,8 +45,14 @@ public final class DesktopRadioSession implements AutoCloseable {
     /** Same safety limit as the Android app: PTT is released after 3 minutes. */
     public static final int RUNAWAY_TX_TIMEOUT_SEC = 180;
 
-    private static final long FIRST_HELLO_WAIT_MS = 4000;
-    private static final long HELLO_TIMEOUT_MS = 12000;
+    /** Reset again only if the board stayed completely silent this long after a reset. */
+    private static final long SILENT_BOARD_RESET_MS = 3000;
+    /**
+     * The firmware retries the SA818 handshake for up to ~20 s while booting
+     * (see initRadio() in the firmware), so wait longer than that for HELLO.
+     */
+    private static final long HELLO_TIMEOUT_MS = 25000;
+    private static final long SLOW_BOOT_NOTICE_MS = 4000;
 
     public enum ConnectionState {
         DISCONNECTED,
@@ -113,6 +119,9 @@ public final class DesktopRadioSession implements AutoCloseable {
     private ScheduledFuture<?> helloRetry;
     private ScheduledFuture<?> helloTimeout;
     private boolean waitingForHello;
+    /** Bytes received since the last board reset; the ESP32 ROM prints a boot log, so >0 means it's alive. */
+    private final java.util.concurrent.atomic.AtomicLong bytesSinceReset = new java.util.concurrent.atomic.AtomicLong();
+    private ScheduledFuture<?> slowBootNotice;
     private volatile boolean transmitting;
     private ScheduledFuture<?> runawayTxTimer;
     private volatile TxLimits txLimits = TxLimits.IARU_REGION_1;
@@ -157,7 +166,10 @@ public final class DesktopRadioSession implements AutoCloseable {
                 @Override
                 public void onBytes(byte[] bytes) {
                     // Runs on kv4p-rx (or the caller's thread in tests).
-                    if (activeTransport == t) parser.processBytes(bytes);
+                    if (activeTransport == t) {
+                        bytesSinceReset.addAndGet(bytes.length);
+                        parser.processBytes(bytes);
+                    }
                 }
 
                 @Override
@@ -222,23 +234,34 @@ public final class DesktopRadioSession implements AutoCloseable {
         // Firmware sends HELLO once, right after boot, so reset the board.
         resetBoard(t);
         cancelHelloTimers();
+        // If the board said nothing at all after the reset (not even the ESP32
+        // boot log), the reset probably didn't take: try once more. If it is
+        // talking, it is booting - don't interrupt it, the SA818 handshake can
+        // legitimately take up to ~20 s.
         helloRetry = radioThread.schedule(() -> {
-            if (waitingForHello && transport == t) {
-                Log.w(TAG, "No HELLO yet, resetting the board again");
+            if (waitingForHello && transport == t && bytesSinceReset.get() == 0) {
+                Log.w(TAG, "No data from the board after reset, resetting it again");
                 resetBoard(t);
             }
-        }, FIRST_HELLO_WAIT_MS, TimeUnit.MILLISECONDS);
+        }, SILENT_BOARD_RESET_MS, TimeUnit.MILLISECONDS);
+        slowBootNotice = radioThread.schedule(() -> {
+            if (waitingForHello && transport == t) {
+                Log.i(TAG, "Board is booting; waiting for the radio module (can take up to 20 s)");
+                setState(ConnectionState.HANDSHAKE, "Radio module is starting up (can take up to 20 s)…");
+            }
+        }, SLOW_BOOT_NOTICE_MS, TimeUnit.MILLISECONDS);
         helloTimeout = radioThread.schedule(() -> {
             if (waitingForHello && transport == t) {
                 waitingForHello = false;
-                Log.w(TAG, "No HELLO after " + HELLO_TIMEOUT_MS + " ms");
+                Log.w(TAG, "No HELLO after " + HELLO_TIMEOUT_MS + " ms (" + bytesSinceReset.get() + " bytes received)");
                 setState(ConnectionState.NO_RESPONSE,
                     "No answer from the radio. Is this the right port, and is kv4p firmware installed?");
             }
         }, HELLO_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     }
 
-    private static void resetBoard(DesktopTransport t) {
+    private void resetBoard(DesktopTransport t) {
+        bytesSinceReset.set(0);
         if (t instanceof SerialPortTransport) {
             ((SerialPortTransport) t).resetBoard();
         }
@@ -251,6 +274,8 @@ public final class DesktopRadioSession implements AutoCloseable {
 
     private void cancelHelloTimers() {
         if (helloRetry != null) helloRetry.cancel(false);
+        if (slowBootNotice != null) slowBootNotice.cancel(false);
+        slowBootNotice = null;
         if (helloTimeout != null) helloTimeout.cancel(false);
         helloRetry = null;
         helloTimeout = null;
