@@ -29,6 +29,7 @@ public class DesktopRadioSessionTest {
     private final List<DesktopRadioSession.ConnectionState> states = new CopyOnWriteArrayList<>();
     private final List<Integer> rxAudioSamples = new CopyOnWriteArrayList<>();
     private final List<Boolean> txEvents = new CopyOnWriteArrayList<>();
+    private final List<Integer> activeMemories = new CopyOnWriteArrayList<>();
     private volatile Protocol.FirmwareVersion helloVersion;
     private FakeTransport transport;
     private DesktopRadioSession session;
@@ -44,6 +45,11 @@ public class DesktopRadioSessionTest {
             @Override
             public void onHello(Protocol.FirmwareVersion version) {
                 helloVersion = version;
+            }
+
+            @Override
+            public void onActiveMemory(int memoryId) {
+                activeMemories.add(memoryId);
             }
 
             @Override
@@ -174,7 +180,81 @@ public class DesktopRadioSessionTest {
         assertEquals(2, countFrames(CMD_HOST_TX_AUDIO));
     }
 
+    @Test
+    public void tuneMemoryAppliesOffsetAndTones() throws Exception {
+        feed(vendorFrame(CMD_HELLO, hello(DesktopRadioSession.MIN_FIRMWARE_VER, 'f')));
+        com.vagell.kv4pht.desktop.Memory m = new com.vagell.kv4pht.desktop.Memory();
+        m.id = 7;
+        m.frequency = "145.6000";
+        m.offset = com.vagell.kv4pht.desktop.Memory.OFFSET_DOWN;
+        m.offsetKhz = 600;
+        m.txTone = "88.5";
+        session.tuneMemory(m);
+        session.runOnRadioThreadAndWait(() -> { });
+
+        ByteBuffer d = ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(7, d.getInt(4));               // memoryId
+        assertEquals(145.0f, d.getFloat(11), 1e-4f); // freqTx with -600 kHz
+        assertEquals(145.6f, d.getFloat(15), 1e-4f); // freqRx
+        assertEquals(8, d.get(19));                  // ctcssTx code for 88.5
+        assertEquals(0, d.get(21));                  // ctcssRx none
+        assertEquals(List.of(7), activeMemories);
+    }
+
+    @Test
+    public void scanAdvancesOnlyWhileSquelched() throws Exception {
+        feed(vendorFrame(CMD_HELLO, hello(DesktopRadioSession.MIN_FIRMWARE_VER, 'f')));
+        List<com.vagell.kv4pht.desktop.Memory> list = new java.util.ArrayList<>();
+        for (int i = 1; i <= 3; i++) {
+            com.vagell.kv4pht.desktop.Memory m = new com.vagell.kv4pht.desktop.Memory();
+            m.id = i;
+            m.frequency = String.format(java.util.Locale.US, "145.%d000", i);
+            m.skipDuringScan = i == 2;
+            list.add(m);
+        }
+        session.startScan(list);
+        session.runOnRadioThreadAndWait(() -> { });
+        assertTrue(session.isScanning());
+        assertEquals(1, ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN).getInt(4));
+        assertEquals("squelch 0 is raised to 1 while scanning", 1, lastDesiredState()[20]);
+
+        // Firmware reports memory 1 applied with an open squelch (signal): stay.
+        feed(vendorFrame(CMD_DEVICE_STATE, deviceState(1, false)));
+        Thread.sleep(400);
+        session.runOnRadioThreadAndWait(() -> { });
+        assertEquals(1, ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN).getInt(4));
+
+        // Squelched: after 250 ms it moves on, skipping memory 2.
+        feed(vendorFrame(CMD_DEVICE_STATE, deviceState(1, true)));
+        Thread.sleep(400);
+        session.runOnRadioThreadAndWait(() -> { });
+        assertEquals(3, ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN).getInt(4));
+
+        session.pttDown(); // PTT stops the scan on the current channel
+        session.runOnRadioThreadAndWait(() -> { });
+        assertTrue(!session.isScanning());
+        assertEquals("squelch restored", 0, lastDesiredState()[20]);
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    private static final int CMD_DEVICE_STATE = 0x0B;
+
+    /** A DEVICE_STATE as the firmware sends it after applying our latest desired state. */
+    private byte[] deviceState(int memoryId, boolean squelched) {
+        ByteBuffer want = ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer b = ByteBuffer.allocate(26).order(ByteOrder.LITTLE_ENDIAN);
+        b.putInt(want.getInt(0));                      // applied sequence
+        b.putInt(memoryId);
+        int flags = (want.getShort(8) & 0xFFFF) | (squelched ? Protocol.DEVICE_STATE_SQUELCHED : 0);
+        b.putShort((short) flags);
+        b.put(want.get(10));
+        b.putFloat(want.getFloat(11));
+        b.putFloat(want.getFloat(15));
+        b.put(want.get(19)).put(want.get(20)).put(want.get(21));
+        b.put((byte) 'f').put((byte) 1).put((byte) 0).put((byte) 0);
+        return b.array();
+    }
 
     private int desiredFlags() {
         return ByteBuffer.wrap(lastDesiredState()).order(ByteOrder.LITTLE_ENDIAN).getShort(8) & 0xFFFF;

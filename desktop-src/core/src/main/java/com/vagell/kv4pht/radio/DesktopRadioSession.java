@@ -2,6 +2,8 @@ package com.vagell.kv4pht.radio;
 
 import android.util.Log;
 
+import com.vagell.kv4pht.desktop.Memory;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -65,6 +67,9 @@ public final class DesktopRadioSession implements AutoCloseable {
         default void onAx25Packet(byte[] packet) {}
         /** PTT state changed: by the app, the board's PTT button, or the runaway timer. */
         default void onTxChanged(boolean transmitting, String reason) {}
+        /** Active memory changed (-1 = simplex/VFO), e.g. while scanning. */
+        default void onActiveMemory(int memoryId) {}
+        default void onScanning(boolean scanning) {}
     }
 
     /** Band edges where transmitting is allowed (MHz). */
@@ -117,6 +122,14 @@ public final class DesktopRadioSession implements AutoCloseable {
         new OpusUtils.OpusEncoderWrapper(AUDIO_SAMPLE_RATE, AUDIO_FRAME_SAMPLES);
     private volatile MicGainBoost micGainBoost = MicGainBoost.NONE;
     private float tunedTxFreq;
+
+    // Scanning, same behaviour as the Android app's RadioAudioService.
+    private static final long SCAN_SQUELCHED_ADVANCE_DELAY_MS = 250L;
+    private int activeMemoryId = -1;
+    private java.util.List<Memory> scanList = java.util.Collections.emptyList();
+    private volatile boolean scanning;
+    private int scanBaseSquelch = -1;
+    private ScheduledFuture<?> pendingScanAdvance;
 
     public DesktopRadioSession(Listener listener) {
         this.listener = listener;
@@ -245,6 +258,7 @@ public final class DesktopRadioSession implements AutoCloseable {
 
     private void closeTransport() {
         cancelHelloTimers();
+        if (scanning) stopScanInternal();
         if (transmitting) {
             stopTx("connection closed");
         }
@@ -341,9 +355,11 @@ public final class DesktopRadioSession implements AutoCloseable {
         }
         listener.onDeviceState(deviceState, transmitting ? 0 : radioModule.getSMeter9Value(),
             radioModule.isSquelched(), radioModule.isDeviceTxActive());
+        checkScanDueToSquelch();
         // The board's own PTT button, same handling as the Android app.
         if (radioModule.didPhysPttChange()) {
             if (radioModule.isPhysPttDown()) {
+                if (scanning) stopScanInternal();
                 if (!transmitting) startTx("PTT button on the radio");
             } else if (transmitting) {
                 stopTx("PTT button on the radio released");
@@ -381,7 +397,10 @@ public final class DesktopRadioSession implements AutoCloseable {
 
     /** Press PTT. Ignored (with a log line) when not connected or TX isn't allowed on this frequency. */
     public void pttDown() {
-        radioThread.execute(() -> startTx("app"));
+        radioThread.execute(() -> {
+            if (scanning) stopScanInternal(); // talk on the channel the scan stopped on
+            startTx("app");
+        });
     }
 
     /** Release PTT. */
@@ -517,6 +536,8 @@ public final class DesktopRadioSession implements AutoCloseable {
     /** Simplex tune, same as the Android app's frequency entry (no tones, no memory). */
     public void tuneSimplex(float freqMhz) {
         radioThread.execute(() -> {
+            if (scanning) stopScanInternal();
+            setActiveMemory(-1);
             radioModule.beginUpdate();
             try {
                 radioModule.setMemoryId(-1);
@@ -532,8 +553,150 @@ public final class DesktopRadioSession implements AutoCloseable {
         });
     }
 
+    /** Tunes to a memory: offset, CTCSS tones and memory id, like the Android app's tuneToMemory. */
+    public void tuneMemory(Memory memory) {
+        radioThread.execute(() -> {
+            if (scanning) stopScanInternal();
+            tuneMemoryInternal(memory);
+        });
+    }
+
+    private boolean tuneMemoryInternal(Memory m) {
+        float rx = m.rxFrequency();
+        float tx = m.txFrequency();
+        if (rx < radioModule.getMinRadioFreq() || rx > radioModule.getMaxRadioFreq()) {
+            Log.w(TAG, "Memory '" + m.name + "' (" + m.frequency + " MHz) is outside this radio's range");
+            return false;
+        }
+        radioModule.beginUpdate();
+        try {
+            radioModule.setMemoryId(m.id);
+            radioModule.setTxFrequency(tx);
+            radioModule.setRxFrequency(rx);
+            radioModule.setTxTone(m.txToneIndex());
+            radioModule.setRxTone(m.rxToneIndex());
+            tunedTxFreq = tx;
+            updateTxAllowed(tx);
+        } finally {
+            radioModule.endUpdate();
+        }
+        setActiveMemory(m.id);
+        return true;
+    }
+
+    private void setActiveMemory(int id) {
+        if (activeMemoryId != id) {
+            activeMemoryId = id;
+            listener.onActiveMemory(id);
+        }
+    }
+
+    /** Starts scanning the given memories in order (skipped ones are ignored). */
+    public void startScan(java.util.List<Memory> memories) {
+        java.util.List<Memory> copy = new java.util.ArrayList<>(memories);
+        radioThread.execute(() -> {
+            if (transmitting || state != ConnectionState.CONNECTED) return;
+            scanList = copy;
+            if (!scanning) {
+                scanBaseSquelch = radioModule.getDesiredSquelch();
+                scanning = true;
+                listener.onScanning(true);
+                Log.i(TAG, "Scanning " + copy.size() + " memories");
+            }
+            nextScan();
+        });
+    }
+
+    public void stopScan() {
+        radioThread.execute(() -> {
+            if (scanning) stopScanInternal();
+        });
+    }
+
+    public boolean isScanning() {
+        return scanning;
+    }
+
+    private void stopScanInternal() {
+        cancelPendingScanAdvance();
+        scanning = false;
+        if (scanBaseSquelch >= 0 && scanBaseSquelch != radioModule.getDesiredSquelch()) {
+            radioModule.setSquelch(scanBaseSquelch);
+        }
+        scanBaseSquelch = -1;
+        Log.i(TAG, "Scan stopped");
+        listener.onScanning(false);
+    }
+
+    private void nextScan() {
+        cancelPendingScanAdvance();
+        if (!scanning || scanList.isEmpty()) {
+            return;
+        }
+        int current = -1;
+        for (int i = 0; i < scanList.size(); i++) {
+            if (scanList.get(i).id == activeMemoryId) {
+                current = i;
+                break;
+            }
+        }
+        int next = (current + 1) % scanList.size();
+        int first = next;
+        do {
+            Memory candidate = scanList.get(next);
+            float f = candidate.rxFrequency();
+            if (!candidate.skipDuringScan && f >= radioModule.getMinRadioFreq() && f <= radioModule.getMaxRadioFreq()) {
+                // If squelch is off (0), use squelch=1 while scanning, like the Android app.
+                int desired = scanBaseSquelch >= 0 ? scanBaseSquelch : radioModule.getDesiredSquelch();
+                radioModule.beginUpdate();
+                try {
+                    radioModule.setSquelch(desired > 0 ? desired : 1);
+                    tuneMemoryInternal(candidate);
+                } finally {
+                    radioModule.endUpdate();
+                }
+                return;
+            }
+            next = (next + 1) % scanList.size();
+        } while (next != first);
+        Log.w(TAG, "All memories are skipped during scan; nothing to scan");
+        stopScanInternal();
+    }
+
+    private void checkScanDueToSquelch() {
+        if (!scanning) {
+            cancelPendingScanAdvance();
+            return;
+        }
+        if (radioModule.getMemoryId() == activeMemoryId && radioModule.isSquelched()) {
+            if (pendingScanAdvance == null) {
+                int memoryId = activeMemoryId;
+                pendingScanAdvance = radioThread.schedule(() -> {
+                    pendingScanAdvance = null;
+                    if (scanning && activeMemoryId == memoryId
+                        && radioModule.getMemoryId() == memoryId && radioModule.isSquelched()) {
+                        nextScan();
+                    }
+                }, SCAN_SQUELCHED_ADVANCE_DELAY_MS, TimeUnit.MILLISECONDS);
+            }
+        } else {
+            cancelPendingScanAdvance(); // signal on this channel: stay
+        }
+    }
+
+    private void cancelPendingScanAdvance() {
+        if (pendingScanAdvance != null) {
+            pendingScanAdvance.cancel(false);
+            pendingScanAdvance = null;
+        }
+    }
+
     public void setSquelch(int squelch) {
-        radioThread.execute(() -> radioModule.setSquelch(Math.max(0, Math.min(8, squelch))));
+        radioThread.execute(() -> {
+            int sq = Math.max(0, Math.min(8, squelch));
+            if (scanning) scanBaseSquelch = sq;
+            radioModule.setSquelch(scanning && sq == 0 ? 1 : sq);
+        });
     }
 
     /** "25kHz" or "12.5kHz", same strings as the Android settings. */

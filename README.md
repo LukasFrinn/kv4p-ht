@@ -31,8 +31,8 @@ there for installing, usage and building.
 | USB connection, firmware handshake | ✅ done (verified on macOS) |
 | Receive: tuning, audio, S-meter, squelch | ✅ done (verified on macOS) |
 | Transmit: PTT button / space bar / radio PTT, microphone | ✅ done (verified on macOS) |
-| APRS | 🔜 next |
-| Memories / channels | planned |
+| APRS: receive, chat with acks, beacon, digipeater | ✅ done (verified on macOS) |
+| Memories (CHIRP/RepeaterBook CSV), scanning | 🔜 testing |
 | FreeDV 2400B digital voice | waits for the next upstream firmware release |
 | Firmware flashing | planned (use the web flasher on kv4p.com meanwhile) |
 

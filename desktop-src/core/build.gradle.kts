@@ -26,6 +26,7 @@ val sharedUpstreamSources = listOf(
     "com/vagell/kv4pht/radio/OpusUtils.java",
     "com/vagell/kv4pht/radio/MicGainBoost.java",
     "com/vagell/kv4pht/radio/RadioMode.java",
+    "com/vagell/kv4pht/ui/ToneHelper.java", // CTCSS tone table for memories
     // APRS: the firmware demodulates/modulates AFSK itself and exchanges AX.25
     // frames over KISS, so only the packet classes and the APRS parser are needed.
     "com/vagell/kv4pht/javAX25/ax25/Packet.java",

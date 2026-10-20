@@ -79,7 +79,7 @@ fun MainScreen(vm: RadioViewModel) {
                 Row(Modifier.fillMaxSize()) {
                     RadioFace(vm, Modifier.weight(1f).fillMaxHeight())
                     Spacer(Modifier.width(12.dp))
-                    LogPanel(vm, Modifier.width(420.dp).fillMaxHeight())
+                    SidePanel(vm, Modifier.width(440.dp).fillMaxHeight())
                 }
             } else {
                 AprsScreen(vm, Modifier.fillMaxSize())
@@ -165,7 +165,18 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Simplex", style = MaterialTheme.typography.titleMedium, color = Kv4pColors.PrimaryDeselected)
+        val active = vm.activeMemory
+        Text(
+            when {
+                active != null && vm.scanning -> "Scanning · ${active.name}"
+                active != null -> active.name + (active.summary().takeIf { it.isNotEmpty() }?.let { "  ($it)" } ?: "")
+                vm.scanning -> "Scanning"
+                else -> "Simplex"
+            },
+            style = MaterialTheme.typography.titleMedium,
+            color = if (vm.scanning) Kv4pColors.OverS9 else Kv4pColors.PrimaryDeselected,
+            maxLines = 1,
+        )
 
         Row(verticalAlignment = Alignment.Bottom) {
             if (editing) {
@@ -401,6 +412,24 @@ private fun LabeledSlider(
     }
 }
 
+/** Right side of the Radio tab: memories or the log. */
+@Composable
+private fun SidePanel(vm: RadioViewModel, modifier: Modifier) {
+    var tab by remember { mutableStateOf(0) }
+    Column(modifier.border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp)).padding(8.dp)) {
+        TabRow(selectedTabIndex = tab, containerColor = Kv4pColors.Black) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Memories") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Log") })
+        }
+        Spacer(Modifier.height(6.dp))
+        if (tab == 0) {
+            MemoriesPanel(vm, Modifier.fillMaxWidth().weight(1f))
+        } else {
+            LogPanel(vm, Modifier.fillMaxWidth().weight(1f))
+        }
+    }
+}
+
 @Composable
 private fun LogPanel(vm: RadioViewModel, modifier: Modifier) {
     val listState = rememberLazyListState()
@@ -408,7 +437,7 @@ private fun LogPanel(vm: RadioViewModel, modifier: Modifier) {
     LaunchedEffect(vm.logLines.size) {
         if (vm.logLines.isNotEmpty()) listState.scrollToItem(vm.logLines.lastIndex)
     }
-    Column(modifier.border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp)).padding(8.dp)) {
+    Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Log", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             TextButton(onClick = { clipboard.setText(AnnotatedString(vm.logLines.joinToString("\n"))) }) {

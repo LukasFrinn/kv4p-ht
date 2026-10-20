@@ -5,6 +5,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.vagell.kv4pht.desktop.AprsController
+import com.vagell.kv4pht.desktop.Memory
+import com.vagell.kv4pht.desktop.MemoryCsv
+import com.vagell.kv4pht.desktop.MemoryStore
 import com.vagell.kv4pht.radio.DesktopRadioSession
 import com.vagell.kv4pht.radio.DesktopRadioSession.ConnectionState
 import com.vagell.kv4pht.radio.Protocol
@@ -65,6 +68,26 @@ class RadioViewModel {
         private set
     var filterLowpass by mutableStateOf(false)
         private set
+
+    // ------------------------------------------------------------------ memories
+
+    private val memoryStore = MemoryStore(AppLog.dir.toPath().resolve("memories.csv"))
+    var memories by mutableStateOf<List<Memory>>(emptyList())
+        private set
+    var memoryGroups by mutableStateOf<List<String>>(emptyList())
+        private set
+    var selectedGroup by mutableStateOf(prefs.get(PREF_GROUP, ALL_GROUPS))
+        private set
+    var activeMemoryId by mutableStateOf(-1)
+        private set
+    var scanning by mutableStateOf(false)
+        private set
+
+    val visibleMemories: List<Memory>
+        get() = if (selectedGroup == ALL_GROUPS) memories else memories.filter { it.group.equals(selectedGroup, ignoreCase = true) }
+
+    val activeMemory: Memory?
+        get() = memories.firstOrNull { it.id == activeMemoryId }
 
     // ------------------------------------------------------------------ APRS
 
@@ -169,6 +192,10 @@ class RadioViewModel {
         override fun onRxAudio(pcm: FloatArray, samples: Int) = audio.write(pcm, samples)
 
         override fun onAx25Packet(packet: ByteArray) = aprs.handleAx25(packet)
+
+        override fun onActiveMemory(memoryId: Int) = ui { activeMemoryId = memoryId }
+
+        override fun onScanning(scanning: Boolean) = ui { this@RadioViewModel.scanning = scanning }
     })
 
     init {
@@ -176,6 +203,8 @@ class RadioViewModel {
         session.setMicGainBoost(micGain)
         session.setTxLimits(limitsFor(txRegion))
         applyAprsSettings()
+        memoryStore.load()
+        reloadMemories()
         AppLog.addListener { line ->
             ui {
                 logLines += line
@@ -289,6 +318,98 @@ class RadioViewModel {
                 "${l.min2m.toInt()}-${l.max2m.toInt()} MHz"
             }
         }
+
+    // ------------------------------------------------------------------ memory actions
+
+    private fun reloadMemories() {
+        memories = memoryStore.all()
+        memoryGroups = memoryStore.groups()
+        if (selectedGroup != ALL_GROUPS && memoryGroups.none { it.equals(selectedGroup, ignoreCase = true) }) {
+            selectedGroup = ALL_GROUPS
+        }
+    }
+
+    fun selectGroup(group: String) {
+        selectedGroup = group
+        prefs.put(PREF_GROUP, group)
+        if (scanning) startScan() // keep scanning, now in this group
+    }
+
+    fun tuneMemory(memory: Memory) {
+        if (connection != ConnectionState.CONNECTED) return
+        session.tuneMemory(memory)
+    }
+
+    /** Returns an error message, or null when saved. */
+    fun saveMemory(memory: Memory): String? {
+        val freq = memory.frequency.trim().replace(',', '.').toFloatOrNull()
+            ?: return "Enter the frequency in MHz, e.g. 145.6"
+        var f = freq
+        while (f > 1000f) f /= 10f
+        firmware?.let { fw ->
+            if (f < fw.minRadioFreq || f > fw.maxRadioFreq) {
+                return "This radio covers ${fw.minRadioFreq}-${fw.maxRadioFreq} MHz"
+            }
+        }
+        if (memory.name.isBlank()) return "Enter a name"
+        val m = memory.copy()
+        m.frequency = Memory.formatFrequency(f.toDouble())
+        m.name = m.name.trim()
+        m.group = m.group.trim()
+        val saved = memoryStore.save(m)
+        reloadMemories()
+        if (saved.id == activeMemoryId) tuneMemory(saved) // apply edits to the active channel
+        return null
+    }
+
+    fun deleteMemory(memory: Memory) {
+        memoryStore.delete(memory.id)
+        reloadMemories()
+    }
+
+    fun moveMemory(memory: Memory, delta: Int) {
+        memoryStore.move(memory.id, delta)
+        reloadMemories()
+    }
+
+    /** New memory prefilled with the current frequency and group. */
+    fun newMemory(): Memory = Memory().apply {
+        frequency = rxFrequency?.takeIf { it > 0f }?.let { Memory.formatFrequency(it.toDouble()) } ?: ""
+        group = if (selectedGroup == ALL_GROUPS) "" else selectedGroup
+    }
+
+    fun startScan() {
+        val list = visibleMemories
+        if (list.isEmpty()) return
+        session.startScan(list)
+    }
+
+    fun stopScan() = session.stopScan()
+
+    /** Imports CHIRP or RepeaterBook CSV; returns a message for the user. */
+    fun importMemories(file: java.io.File, group: String): String {
+        val text = try {
+            file.readText()
+        } catch (e: Exception) {
+            return "Could not read ${file.name}: ${e.message}"
+        }
+        val fw = firmware
+        val result = MemoryCsv.parse(text, fw?.minRadioFreq ?: 0f, fw?.maxRadioFreq ?: 10_000f, group.trim())
+        if (result.format == "unknown") {
+            return "${file.name} is not a CHIRP or RepeaterBook CSV file"
+        }
+        memoryStore.addAll(result.memories)
+        reloadMemories()
+        val skipped = if (result.skipped > 0) ", ${result.skipped} skipped (out of this radio's range or not FM)" else ""
+        return "Imported ${result.memories.size} memories from ${result.format}$skipped"
+    }
+
+    fun exportMemories(file: java.io.File): String = try {
+        file.writeText(memoryStore.exportCsv())
+        "Exported ${memories.size} memories to ${file.name} (CHIRP format)"
+    } catch (e: Exception) {
+        "Could not write ${file.name}: ${e.message}"
+    }
 
     // ------------------------------------------------------------------ APRS actions
 
@@ -408,6 +529,8 @@ class RadioViewModel {
         private const val PREF_MIC_GAIN = "micGain"
         private const val PREF_TX_REGION = "txRegion"
         private const val PREF_HIGH_POWER = "highPower"
+        private const val PREF_GROUP = "memoryGroup"
+        const val ALL_GROUPS = "All"
         private const val PREF_APRS_CALL = "aprsCallsign"
         private const val PREF_APRS_POS = "aprsPosition"
         private const val PREF_APRS_SYMBOL = "aprsSymbol"
