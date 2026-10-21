@@ -87,3 +87,10 @@ compose.desktop {
 }
 
 tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(buildLocateHelper) }
+// Packaging drops the helper's executable bit; put it back in the finished .app.
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        fileTree(layout.buildDirectory.dir("compose/binaries")) { include("**/kv4p-locate") }
+            .forEach { it.setExecutable(true, false) }
+    }
+}
