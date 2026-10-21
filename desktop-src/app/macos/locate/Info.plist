@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Location Services only asks the user for apps with a bundle, so the helper is a tiny .app. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.kv4p.desktop.locate</string>
+    <key>CFBundleName</key>
+    <string>kv4p HT</string>
+    <key>CFBundleDisplayName</key>
+    <string>kv4p HT</string>
+    <key>CFBundleExecutable</key>
+    <string>kv4p-locate</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSLocationUsageDescription</key>
+    <string>Your location is filled into the APRS position beacon when you ask for it.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Your location is filled into the APRS position beacon when you ask for it.</string>
+</dict>
+</plist>

@@ -17,7 +17,7 @@ final class Locator: NSObject, CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .notDetermined: manager.requestWhenInUseAuthorization()
         case .denied, .restricted: finish("ERR denied", 2)
-        default: manager.requestLocation()
+        default: manager.startUpdatingLocation()
         }
     }
 
@@ -27,6 +27,9 @@ final class Locator: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        // "Location unknown" is temporary (Wi-Fi scan still running); keep waiting.
+        if (error as? CLError)?.code == .locationUnknown { return }
+        if (error as? CLError)?.code == .denied { finish("ERR denied", 2) }
         finish("ERR \(error.localizedDescription)", 1)
     }
 

@@ -19,10 +19,17 @@ import java.util.concurrent.TimeUnit
 object PcLocation {
     private const val TAG = "PcLocation"
 
-    data class Fix(val lat: Double, val lon: Double, val accuracyM: Double?, val source: String) {
+    data class Fix(
+        val lat: Double,
+        val lon: Double,
+        val accuracyM: Double?,
+        val source: String,
+        /** Why a better source was not used, e.g. Wi-Fi off on a Mac. */
+        val note: String? = null,
+    ) {
         fun describe(): String {
             val acc = accuracyM?.let { if (it >= 1000) String.format(Locale.US, " (±%.0f km)", it / 1000) else String.format(Locale.US, " (±%.0f m)", it) } ?: ""
-            return "$source$acc"
+            return "$source$acc" + (note?.let { " - $it" } ?: "")
         }
     }
 
@@ -38,13 +45,14 @@ object PcLocation {
                 problems += e.message.orEmpty()
             }
         }
+        val note = problems.joinToString("; ").ifEmpty { null }
         try {
-            gpsdLocation()?.let { return it }
+            gpsdLocation()?.let { return it.copy(note = note) }
         } catch (e: Exception) {
             Log.d(TAG, "gpsd: ${e.message}")
         }
         try {
-            return ipLocation()
+            return ipLocation().copy(note = note)
         } catch (e: Exception) {
             problems += "IP lookup failed (${e.message})"
         }
@@ -57,7 +65,7 @@ object PcLocation {
 
     private fun macHelper(): File? {
         val dir = System.getProperty("compose.application.resources.dir") ?: return null
-        return File(dir, "kv4p-locate").takeIf { it.canExecute() }
+        return File(dir, "kv4p-locate.app/Contents/MacOS/kv4p-locate").takeIf { it.canExecute() }
     }
 
     private fun macLocation(): Fix? {
@@ -65,8 +73,8 @@ object PcLocation {
             Log.d(TAG, "kv4p-locate helper not bundled (dev run?)")
             return null
         }
-        val proc = ProcessBuilder(helper.absolutePath, "30").redirectErrorStream(true).start()
-        if (!proc.waitFor(40, TimeUnit.SECONDS)) {
+        val proc = ProcessBuilder(helper.absolutePath, "15").redirectErrorStream(true).start()
+        if (!proc.waitFor(25, TimeUnit.SECONDS)) {
             proc.destroyForcibly()
             throw Failure("Location Services did not answer")
         }
@@ -76,15 +84,16 @@ object PcLocation {
         if (parts.firstOrNull() == "OK" && parts.size >= 4) {
             return Fix(parts[1].toDouble(), parts[2].toDouble(), parts[3].toDoubleOrNull()?.takeIf { it > 0 }, "Location Services")
         }
-        return when (line.removePrefix("ERR ").trim()) {
-            "denied" -> throw Failure(
-                "Location access denied - allow kv4p-ht-desktop in System Settings → Privacy & Security → Location Services"
-            )
-            else -> {
-                Log.w(TAG, "Location Services: $line")
-                null // fall through to the other sources
+        Log.w(TAG, "Location Services: $line")
+        // Falls through to the other sources, telling the user why.
+        throw Failure(
+            when (line.removePrefix("ERR ").trim()) {
+                "denied" -> "allow kv4p HT in System Settings → Privacy & Security → Location Services"
+                // Macs locate themselves from nearby Wi-Fi networks only.
+                "timeout" -> "Mac location needs Wi-Fi turned on (it does not have to be connected)"
+                else -> "Location Services: ${line.removePrefix("ERR ")}"
             }
-        }
+        )
     }
 
     // ---------------------------------------------------------------- gpsd

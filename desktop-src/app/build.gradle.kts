@@ -35,12 +35,20 @@ val macArch = if (System.getProperty("os.arch") == "aarch64") "arm64" else "x64"
 val appResources = layout.buildDirectory.dir("appResources")
 val buildLocateHelper by tasks.registering(Exec::class) {
     val source = file("macos/locate/main.swift")
-    val output = appResources.map { it.file("macos-$macArch/kv4p-locate") }
+    val plist = file("macos/locate/Info.plist")
+    val bundle = appResources.map { it.dir("macos-$macArch/kv4p-locate.app") }
     onlyIf { isMacHost }
-    inputs.file(source)
-    outputs.file(output)
-    doFirst { output.get().asFile.parentFile.mkdirs() }
-    commandLine("swiftc", "-O", source.absolutePath, "-o", output.get().asFile.absolutePath)
+    inputs.files(source, plist)
+    outputs.dir(bundle)
+    doFirst {
+        val contents = bundle.get().asFile.resolve("Contents")
+        contents.resolve("MacOS").mkdirs()
+        plist.copyTo(contents.resolve("Info.plist"), overwrite = true)
+    }
+    commandLine(
+        "swiftc", "-O", source.absolutePath,
+        "-o", bundle.get().asFile.resolve("Contents/MacOS/kv4p-locate").absolutePath,
+    )
 }
 
 val appVersion = (findProperty("appVersion") as String?) ?: "1.0.0"
@@ -92,5 +100,13 @@ tasks.matching { it.name == "createDistributable" }.configureEach {
     doLast {
         fileTree(layout.buildDirectory.dir("compose/binaries")) { include("**/kv4p-locate") }
             .forEach { it.setExecutable(true, false) }
+        // Sign the helper as a bundle so Location Services can identify it (ad-hoc is enough).
+        if (isMacHost) {
+            fileTree(layout.buildDirectory.dir("compose/binaries")).matching { include("**/kv4p-locate") }
+                .forEach { exe ->
+                    val app = exe.parentFile.parentFile.parentFile
+                    providers.exec { commandLine("codesign", "--force", "--sign", "-", app.absolutePath) }.result.get()
+                }
+        }
     }
 }
