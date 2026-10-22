@@ -15,7 +15,9 @@ import androidx.compose.ui.window.rememberWindowState
 import com.kv4p.desktop.ui.Kv4pTheme
 import com.kv4p.desktop.ui.LogPanel
 import com.kv4p.desktop.ui.MainScreen
+import com.kv4p.desktop.ui.LandscapeMinWidth
 import com.kv4p.desktop.ui.MaxContentWidth
+import com.kv4p.desktop.ui.TextFocus
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -49,9 +51,10 @@ private fun runUi() {
             title = "kv4p HT",
             icon = appIcon,
             state = rememberWindowState(size = initialWindowSize()),
-            // Space bar = PTT. onKeyEvent only sees keys no focused text field used.
-            onKeyEvent = { event ->
-                if (event.key == Key.Spacebar) {
+            // Space bar = PTT. Checked before the focused control sees the key, so a button or
+            // checkbox clicked earlier doesn't take it; only text fields keep the space bar.
+            onPreviewKeyEvent = { event ->
+                if (event.key == Key.Spacebar && !TextFocus.active) {
                     when (event.type) {
                         KeyEventType.KeyDown -> vm.pttDown()
                         KeyEventType.KeyUp -> vm.pttUp()
@@ -81,13 +84,18 @@ private fun runUi() {
     }
 }
 
-/** Narrow, tall window that still fits short screens such as the uConsole's 1280x720. */
+/**
+ * Short screens (uConsole, 1280x720) get a wide window with the memories beside the radio;
+ * taller ones a narrow, tall window with the memories below.
+ */
 private fun initialWindowSize(): DpSize {
     val screen = runCatching {
         java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
-    }.getOrNull()
-    val height = screen?.height?.minus(20)?.coerceIn(600, 960) ?: 900
-    return DpSize(MaxContentWidth + 20.dp, height.dp)
+    }.getOrNull() ?: return DpSize(MaxContentWidth + 20.dp, 900.dp)
+    if (screen.height < 900) {
+        return DpSize(screen.width.coerceAtLeast(LandscapeMinWidth.value.toInt()).dp, screen.height.dp)
+    }
+    return DpSize(MaxContentWidth + 20.dp, (screen.height - 20).coerceAtMost(960).dp)
 }
 
 private fun listPorts() {

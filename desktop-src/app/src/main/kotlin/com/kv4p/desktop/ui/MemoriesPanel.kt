@@ -3,6 +3,7 @@ package com.kv4p.desktop.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -88,7 +91,9 @@ fun MemoriesPanel(vm: RadioViewModel, modifier: Modifier) {
                 )
             }
         } else {
-            LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val listState = rememberLazyListState()
+            WithScrollbar(listState, Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(list, key = { it.id }) { m ->
                     MemoryRow(
                         m,
@@ -101,6 +106,7 @@ fun MemoriesPanel(vm: RadioViewModel, modifier: Modifier) {
                         onMove = { vm.moveMemory(m, it) },
                     )
                 }
+            }
             }
         }
     }
@@ -176,7 +182,9 @@ private fun MemoryRow(
         }
         TextButton(onClick = { onMove(-1) }, modifier = Modifier.width(36.dp)) { Text("↑") }
         TextButton(onClick = { onMove(1) }, modifier = Modifier.width(36.dp)) { Text("↓") }
-        TextButton(onClick = onEdit, modifier = Modifier.width(44.dp)) { Text("Edit") }
+        TextButton(onClick = onEdit, modifier = Modifier.width(52.dp), contentPadding = PaddingValues(horizontal = 4.dp)) {
+            Text("Edit", maxLines = 1, softWrap = false)
+        }
         TextButton(onClick = onDelete, modifier = Modifier.width(36.dp)) { Text("✕", color = Kv4pColors.Accent) }
     }
 }
@@ -198,8 +206,8 @@ private fun MemoryDialog(vm: RadioViewModel, initial: Memory, onDismiss: () -> U
         title = { Text(if (initial.id == 0) "Add memory" else "Edit memory") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.width(420.dp)) {
-                OutlinedTextField(name, { name = it.take(40) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(freq, { freq = it }, label = { Text("RX frequency (MHz)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it.take(40) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth().typingField())
+                OutlinedTextField(freq, { freq = it }, label = { Text("RX frequency (MHz)") }, singleLine = true, modifier = Modifier.fillMaxWidth().typingField())
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Choice2("Offset", listOf("None", "+ (up)", "- (down)"), when (offset) {
                         Memory.OFFSET_UP -> "+ (up)"
@@ -214,14 +222,14 @@ private fun MemoryDialog(vm: RadioViewModel, initial: Memory, onDismiss: () -> U
                     }
                     if (offset != Memory.OFFSET_NONE) {
                         OutlinedTextField(offsetKhz, { offsetKhz = it.filter(Char::isDigit).take(5) },
-                            label = { Text("kHz") }, singleLine = true, modifier = Modifier.width(110.dp))
+                            label = { Text("kHz") }, singleLine = true, modifier = Modifier.width(110.dp).typingField())
                     }
                 }
                 Row {
                     Choice2("TX tone", ToneHelper.VALID_TONE_STRINGS, txTone) { txTone = it }
                     Choice2("RX tone", ToneHelper.VALID_TONE_STRINGS, rxTone) { rxTone = it }
                 }
-                OutlinedTextField(group, { group = it.take(30) }, label = { Text("Group (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(group, { group = it.take(30) }, label = { Text("Group (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth().typingField())
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(skip, { skip = it })
                     Text("Skip during scan", style = MaterialTheme.typography.bodySmall)
@@ -260,7 +268,7 @@ private fun ImportDialog(file: File, groups: List<String>, onImport: (String) ->
                     "CHIRP files keep their own groups (Comment column). RepeaterBook files go into this group:",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                OutlinedTextField(group, { group = it.take(30) }, label = { Text("Group") }, singleLine = true)
+                OutlinedTextField(group, { group = it.take(30) }, label = { Text("Group") }, singleLine = true, modifier = Modifier.typingField())
                 if (groups.isNotEmpty()) {
                     Text("Existing: " + groups.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = Kv4pColors.MediumGray)
                 }

@@ -62,21 +62,27 @@ import com.kv4p.desktop.AppLog
 import com.kv4p.desktop.RadioViewModel
 import com.vagell.kv4pht.radio.DesktopRadioSession.ConnectionState
 
-/** Widest the content gets; extra window width is left empty around it. */
+/** Widest the content gets in portrait layout; extra window width is left empty around it. */
 val MaxContentWidth = 780.dp
 
+/** From this window width on, the memories sit beside the radio face (uConsole: 1280x720). */
+val LandscapeMinWidth = 1100.dp
+
 /**
- * Main window: connection bar on top, then the Radio tab (radio face with the memories
- * below it) or the APRS tab. The log lives in a separate Debug window (Main.kt).
+ * Main window: connection bar on top, then the Radio tab or the APRS tab. Wide windows get
+ * the radio face and memories side by side, narrow ones get the memories below.
+ * The log lives in a separate Debug window (Main.kt).
  */
 @Composable
 fun MainScreen(vm: RadioViewModel) {
     var tab by remember { mutableStateOf(0) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+        val landscape = maxWidth >= LandscapeMinWidth
         Column(
             Modifier.fillMaxSize()
                 .wrapContentWidth(Alignment.CenterHorizontally)
-                .widthIn(max = MaxContentWidth)
+                .widthIn(max = if (landscape) maxWidth else MaxContentWidth)
                 .padding(12.dp)
         ) {
             ConnectionBar(vm)
@@ -89,11 +95,27 @@ fun MainScreen(vm: RadioViewModel) {
             }
             Spacer(Modifier.height(8.dp))
             if (tab == 0) {
-                RadioTab(vm)
+                if (landscape) RadioTabLandscape(vm) else RadioTab(vm)
             } else {
                 AprsScreen(vm, Modifier.fillMaxSize())
             }
         }
+        }
+    }
+}
+
+/** Radio face on the left, memories on the right; nothing needs scrolling at 1280x720. */
+@Composable
+private fun RadioTabLandscape(vm: RadioViewModel) {
+    Row(Modifier.fillMaxSize()) {
+        RadioFace(vm, Modifier.weight(1f).fillMaxHeight())
+        Spacer(Modifier.width(12.dp))
+        MemoriesPanel(
+            vm,
+            Modifier.width(460.dp).fillMaxHeight()
+                .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
+                .padding(8.dp),
+        )
     }
 }
 
@@ -108,7 +130,9 @@ private val RadioFaceHeight = 470.dp
 private fun RadioTab(vm: RadioViewModel) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val memoriesHeight = (maxHeight - RadioFaceHeight - 12.dp).coerceAtLeast(320.dp)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        val scroll = rememberScrollState()
+        WithScrollbar(scroll, Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
             RadioFace(vm, Modifier.fillMaxWidth())
             Spacer(Modifier.height(12.dp))
             MemoriesPanel(
@@ -117,6 +141,7 @@ private fun RadioTab(vm: RadioViewModel) {
                     .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
                     .padding(8.dp),
             )
+        }
         }
     }
 }
@@ -228,7 +253,7 @@ private fun RadioFace(vm: RadioViewModel, modifier: Modifier) {
                         if (vm.tune(input)) editing = false else inputError = true
                     }),
                     textStyle = MaterialTheme.typography.displayMedium,
-                    modifier = Modifier.width(360.dp),
+                    modifier = Modifier.width(360.dp).typingField(),
                 )
                 Spacer(Modifier.width(8.dp))
                 Column {
@@ -468,7 +493,8 @@ fun LogPanel(vm: RadioViewModel, modifier: Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = Kv4pColors.MediumGray,
         )
-        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+        WithScrollbar(listState, Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(vm.logLines) { line ->
                 Text(
                     line,
@@ -481,5 +507,6 @@ fun LogPanel(vm: RadioViewModel, modifier: Modifier) {
                 )
             }
         }
+    }
     }
 }

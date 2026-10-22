@@ -121,8 +121,10 @@ private fun AprsList(vm: RadioViewModel, modifier: Modifier) {
         }
         return
     }
-    LazyColumn(modifier, state = listState, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(vm.aprsEntries) { entry -> EntryRow(entry, me, revision) }
+    WithScrollbar(listState, modifier) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(vm.aprsEntries) { entry -> EntryRow(entry, me, revision) }
+        }
     }
 }
 
@@ -209,7 +211,7 @@ private fun ChatInput(vm: RadioViewModel) {
             onValueChange = { to = it.uppercase().take(9) },
             label = { Text("To (empty = everyone)") },
             singleLine = true,
-            modifier = Modifier.width(170.dp),
+            modifier = Modifier.width(170.dp).typingField(),
         )
         OutlinedTextField(
             value = text,
@@ -218,7 +220,7 @@ private fun ChatInput(vm: RadioViewModel) {
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
             keyboardActions = KeyboardActions(onSend = { send() }),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).typingField(),
         )
         Button(onClick = { send() }, enabled = connected && text.isNotBlank()) { Text("Send") }
     }
@@ -235,11 +237,10 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
     val positionOk = vm.parsePosition(position) != null
     val connected = vm.connection == ConnectionState.CONNECTED
 
+    val scroll = rememberScrollState()
+    WithScrollbar(scroll, modifier.border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp)).padding(start = 12.dp, top = 12.dp, bottom = 12.dp)) {
     Column(
-        modifier
-            .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
-            .padding(12.dp)
-            .verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().verticalScroll(scroll),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Your station", style = MaterialTheme.typography.titleSmall)
@@ -252,7 +253,7 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
             label = { Text("Callsign (e.g. OM0ABC-7)") },
             isError = callsign.isNotEmpty() && !vm.aprsCallsignValid,
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().typingField(),
         )
         OutlinedTextField(
             value = position,
@@ -266,7 +267,7 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
                 vm.myPosition?.let { Text(String.format(Locale.US, "%.4f, %.4f", it[0], it[1])) }
             },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().typingField(),
         )
         OutlinedButton(
             onClick = { vm.usePcLocation { position = it } },
@@ -291,7 +292,7 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
             },
             label = { Text("Beacon comment") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().typingField(),
         )
         Picker(
             "Auto beacon",
@@ -313,6 +314,7 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
             style = MaterialTheme.typography.labelSmall,
             color = Kv4pColors.MediumGray,
         )
+    }
     }
 }
 
