@@ -43,6 +43,8 @@ import com.vagell.kv4pht.ui.ToneHelper
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 /** Channel memories: group filter, list (click to tune), add/edit/delete, scan, CSV import/export. */
 @Composable
@@ -292,6 +294,11 @@ private fun Choice2(label: String, options: List<String>, value: String, onPick:
 
 /** Native file chooser (Finder on macOS, GTK on Linux). Returns null when cancelled. */
 private fun chooseFile(title: String, mode: Int, suggestedName: String?): File? {
+    // The native (GTK) dialog shows up black and frozen on the uConsole (Wayland), so Linux
+    // gets Swing's own chooser, which is drawn like the rest of the app.
+    if (!System.getProperty("os.name").orEmpty().lowercase().contains("mac")) {
+        return swingChooseFile(title, mode, suggestedName)
+    }
     val dialog = FileDialog(null as Frame?, title, mode)
     if (suggestedName != null) dialog.file = suggestedName
     if (mode == FileDialog.LOAD) dialog.setFilenameFilter { _, name -> name.lowercase().endsWith(".csv") }
@@ -299,4 +306,16 @@ private fun chooseFile(title: String, mode: Int, suggestedName: String?): File? 
     val dir = dialog.directory ?: return null
     val name = dialog.file ?: return null
     return File(dir, name)
+}
+
+private fun swingChooseFile(title: String, mode: Int, suggestedName: String?): File? {
+    val chooser = JFileChooser().apply {
+        dialogTitle = title
+        fileFilter = FileNameExtensionFilter("CSV files", "csv")
+        if (suggestedName != null) selectedFile = File(currentDirectory, suggestedName)
+    }
+    // Owned by the app window so it opens on top of it, also when that is maximized.
+    val owner = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+    val result = if (mode == FileDialog.LOAD) chooser.showOpenDialog(owner) else chooser.showSaveDialog(owner)
+    return chooser.selectedFile.takeIf { result == JFileChooser.APPROVE_OPTION }
 }

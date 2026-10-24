@@ -12,6 +12,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.runtime.LaunchedEffect
+import java.awt.Dimension
 import com.kv4p.desktop.ui.Kv4pTheme
 import com.kv4p.desktop.ui.LogPanel
 import com.kv4p.desktop.ui.MainScreen
@@ -50,7 +53,10 @@ private fun runUi() {
             },
             title = "kv4p HT",
             icon = appIcon,
-            state = rememberWindowState(size = initialWindowSize()),
+            state = rememberWindowState(
+                size = initialWindowSize(),
+                placement = if (isSmallScreen()) WindowPlacement.Maximized else WindowPlacement.Floating,
+            ),
             // Space bar = PTT. Checked before the focused control sees the key, so a button or
             // checkbox clicked earlier doesn't take it; only text fields keep the space bar.
             onPreviewKeyEvent = { event ->
@@ -65,6 +71,8 @@ private fun runUi() {
                 }
             },
         ) {
+            // Below this the radio face starts squeezing its text into one-letter columns.
+            LaunchedEffect(Unit) { window.minimumSize = Dimension(MIN_WIDTH, MIN_HEIGHT) }
             Kv4pTheme { MainScreen(vm) }
         }
         if (vm.debugOpen) {
@@ -89,10 +97,8 @@ private fun runUi() {
  * taller ones a narrow, tall window with the memories below.
  */
 private fun initialWindowSize(): DpSize {
-    val screen = runCatching {
-        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
-    }.getOrNull() ?: return DpSize(MaxContentWidth + 20.dp, 900.dp)
-    if (screen.height < 900) {
+    val screen = screenBounds() ?: return DpSize(MaxContentWidth + 20.dp, 900.dp)
+    if (screen.height < SMALL_SCREEN_HEIGHT) {
         return DpSize(screen.width.coerceAtLeast(LandscapeMinWidth.value.toInt()).dp, screen.height.dp)
     }
     return DpSize(MaxContentWidth + 20.dp, (screen.height - 20).coerceAtMost(960).dp)
@@ -156,3 +162,14 @@ private fun probe(args: Array<String>) {
     println(if (exitCode == 0) "OK: radio answered." else "FAILED - see ${AppLog.file}")
     exitProcess(exitCode)
 }
+
+private const val MIN_WIDTH = 720
+private const val MIN_HEIGHT = 560
+private const val SMALL_SCREEN_HEIGHT = 900
+
+private fun screenBounds() = runCatching {
+    java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+}.getOrNull()
+
+/** Small screens such as the uConsole's open the window maximized. */
+private fun isSmallScreen() = screenBounds()?.let { it.height < SMALL_SCREEN_HEIGHT } == true

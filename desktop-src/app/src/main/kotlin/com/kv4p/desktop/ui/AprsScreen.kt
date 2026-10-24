@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,13 +56,20 @@ import java.util.Locale
 
 private val timeFormat = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
 
-/** APRS tab: received packets and chat on the left, station settings on the right. */
+/** APRS tab: station settings on top (can be folded away), packets and chat below at full width. */
 @Composable
 fun AprsScreen(vm: RadioViewModel, modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { vm.clearAprsUnread() }
-    Row(modifier) {
+    Column(modifier) {
+        AprsSettings(
+            vm,
+            Modifier.fillMaxWidth()
+                .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+        Spacer(Modifier.height(8.dp))
         Column(
-            Modifier.weight(1f).fillMaxHeight()
+            Modifier.weight(1f).fillMaxWidth()
                 .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp))
                 .padding(12.dp),
         ) {
@@ -69,8 +79,6 @@ fun AprsScreen(vm: RadioViewModel, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(8.dp))
             ChatInput(vm)
         }
-        Spacer(Modifier.width(12.dp))
-        AprsSettings(vm, Modifier.width(300.dp).fillMaxHeight())
     }
 }
 
@@ -209,7 +217,8 @@ private fun ChatInput(vm: RadioViewModel) {
         OutlinedTextField(
             value = to,
             onValueChange = { to = it.uppercase().take(9) },
-            label = { Text("To (empty = everyone)") },
+            label = { Text("To") },
+            placeholder = { Text("everyone") },
             singleLine = true,
             modifier = Modifier.width(170.dp).typingField(),
         )
@@ -229,92 +238,117 @@ private fun ChatInput(vm: RadioViewModel) {
     }
 }
 
+/** Folded: one summary line. Unfolded: the station fields, wrapping to fit the window width. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
+    var expanded by remember { mutableStateOf(!vm.aprsCallsignValid || vm.myPosition == null) }
     var callsign by remember { mutableStateOf(vm.aprsCallsign) }
     var position by remember { mutableStateOf(vm.aprsPosition) }
     var comment by remember { mutableStateOf(vm.aprsComment) }
     val positionOk = vm.parsePosition(position) != null
     val connected = vm.connection == ConnectionState.CONNECTED
 
-    val scroll = rememberScrollState()
-    WithScrollbar(scroll, modifier.border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(8.dp)).padding(start = 12.dp, top = 12.dp, bottom = 12.dp)) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(scroll),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("Your station", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = callsign,
-            onValueChange = {
-                callsign = it.uppercase().take(9)
-                vm.updateAprsSettings(callsign = callsign)
-            },
-            label = { Text("Callsign (e.g. OM0ABC-7)") },
-            isError = callsign.isNotEmpty() && !vm.aprsCallsignValid,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().typingField(),
-        )
-        OutlinedTextField(
-            value = position,
-            onValueChange = {
-                position = it
-                vm.updateAprsSettings(position = it)
-            },
-            label = { Text("Position: locator (JN88ne) or lat, lon") },
-            isError = position.isNotEmpty() && !positionOk,
-            supportingText = {
-                vm.myPosition?.let { Text(String.format(Locale.US, "%.4f, %.4f", it[0], it[1])) }
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().typingField(),
-        )
-        OutlinedButton(
-            onClick = { vm.usePcLocation { position = it } },
-            enabled = !vm.locating,
-            modifier = Modifier.fillMaxWidth(),
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Your station", style = MaterialTheme.typography.titleSmall)
+            if (!expanded) {
+                Text(
+                    listOf(
+                        vm.aprsCallsign.ifEmpty { "no callsign" },
+                        vm.myPosition?.let { String.format(Locale.US, "%.4f, %.4f", it[0], it[1]) } ?: "no position",
+                        if (vm.aprsBeaconMinutes == 0) "auto beacon off" else "beacon every ${vm.aprsBeaconMinutes} min",
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Kv4pColors.PrimaryDeselected,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
+            Button(onClick = { vm.beaconNow() }, enabled = connected) { Text("Beacon now") }
+            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide settings ▴" else "Settings ▾") }
+        }
+        if (!expanded) return@Column
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(if (vm.locating) "Locating…" else "Use this computer's location")
-        }
-        if (vm.locateStatus.isNotEmpty()) {
-            Text(vm.locateStatus, style = MaterialTheme.typography.labelSmall, color = Kv4pColors.MediumGray)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = vm.aprsApprox, onCheckedChange = { vm.updateAprsSettings(approx = it) })
-            Text("Send approximate position (~1 km)", style = MaterialTheme.typography.bodySmall)
-        }
-        Picker("Symbol", vm.aprsSymbol, RadioViewModel.APRS_SYMBOLS.keys.toList()) { vm.updateAprsSettings(symbol = it) }
-        OutlinedTextField(
-            value = comment,
-            onValueChange = {
-                comment = it.take(40)
-                vm.updateAprsSettings(comment = comment)
-            },
-            label = { Text("Beacon comment") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().typingField(),
-        )
-        Picker(
-            "Auto beacon",
-            if (vm.aprsBeaconMinutes == 0) "Off" else "every ${vm.aprsBeaconMinutes} min",
-            RadioViewModel.APRS_BEACON_CHOICES.map { if (it == 0) "Off" else "every $it min" },
-        ) { label -> vm.updateAprsSettings(beaconMinutes = label.filter { it.isDigit() }.toIntOrNull() ?: 0) }
-        Button(onClick = { vm.beaconNow() }, enabled = connected, modifier = Modifier.fillMaxWidth()) {
-            Text("Send position beacon now")
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = vm.aprsDigipeat, onCheckedChange = { vm.updateAprsSettings(digipeat = it) })
+            OutlinedTextField(
+                value = callsign,
+                onValueChange = {
+                    callsign = it.uppercase().take(9)
+                    vm.updateAprsSettings(callsign = callsign)
+                },
+                label = { Text("Callsign (e.g. OM0ABC-7)") },
+                isError = callsign.isNotEmpty() && !vm.aprsCallsignValid,
+                singleLine = true,
+                modifier = Modifier.width(200.dp).typingField(),
+            )
+            OutlinedTextField(
+                value = position,
+                onValueChange = {
+                    position = it
+                    vm.updateAprsSettings(position = it)
+                },
+                label = { Text("Position: locator (JN88ne) or lat, lon") },
+                isError = position.isNotEmpty() && !positionOk,
+                singleLine = true,
+                modifier = Modifier.width(280.dp).typingField(),
+            )
             Column {
+                OutlinedButton(onClick = { vm.usePcLocation { position = it } }, enabled = !vm.locating) {
+                    Text(if (vm.locating) "Locating…" else "Use this computer's location")
+                }
+                if (vm.locateStatus.isNotEmpty()) {
+                    Text(
+                        vm.locateStatus,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Kv4pColors.MediumGray,
+                        modifier = Modifier.widthIn(max = 320.dp),
+                    )
+                }
+            }
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = comment,
+                onValueChange = {
+                    comment = it.take(40)
+                    vm.updateAprsSettings(comment = comment)
+                },
+                label = { Text("Beacon comment") },
+                singleLine = true,
+                modifier = Modifier.width(240.dp).typingField(),
+            )
+            Picker("Symbol", vm.aprsSymbol, RadioViewModel.APRS_SYMBOLS.keys.toList()) { vm.updateAprsSettings(symbol = it) }
+            Picker(
+                "Auto beacon",
+                if (vm.aprsBeaconMinutes == 0) "Off" else "every ${vm.aprsBeaconMinutes} min",
+                RadioViewModel.APRS_BEACON_CHOICES.map { if (it == 0) "Off" else "every $it min" },
+            ) { label -> vm.updateAprsSettings(beaconMinutes = label.filter { it.isDigit() }.toIntOrNull() ?: 0) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = vm.aprsApprox, onCheckedChange = { vm.updateAprsSettings(approx = it) })
+                Text("Approximate position (~1 km)", style = MaterialTheme.typography.bodySmall)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = vm.aprsDigipeat, onCheckedChange = { vm.updateAprsSettings(digipeat = it) })
                 Text("Digipeat (WIDE1-1 fill-in)", style = MaterialTheme.typography.bodySmall)
-                Text("Repeats nearby packets, like the Android app", style = MaterialTheme.typography.labelSmall, color = Kv4pColors.MediumGray)
             }
         }
         Text(
-            "Messages addressed to your callsign are acknowledged automatically.",
+            "Messages addressed to your callsign are acknowledged automatically. " +
+                "Digipeat repeats nearby packets, like the Android app.",
             style = MaterialTheme.typography.labelSmall,
             color = Kv4pColors.MediumGray,
         )
-    }
     }
 }
 
