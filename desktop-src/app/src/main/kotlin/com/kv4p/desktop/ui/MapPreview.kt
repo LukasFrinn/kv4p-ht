@@ -46,63 +46,117 @@ import kotlin.math.tan
 
 /** Where the map pictures come from and where a click goes. Change here to switch services. */
 object MapConfig {
-    /** Aerial imagery tiles (OpenStreetMap itself has no aerial layer). {z}/{y}/{x}. */
-    const val TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/%d/%d/%d"
-    const val ATTRIBUTION = "© Esri"
-    const val ZOOM = 16
+    /** Topographic / hiking style tiles built from OpenStreetMap data. */
+    private const val TILE_URL = "https://tile.opentopomap.org/%d/%d/%d.png"
+    /** Folder name under ~/.kv4p-desktop/tiles, one per tile source. */
+    const val CACHE_NAME = "opentopomap"
+    const val ATTRIBUTION = "© OpenTopoMap, © OSM"
+    /** Zoom of the previews; also the most detailed zoom the offline download fetches. */
+    const val ZOOM = 14
+    /** Least detailed zoom the offline download fetches. */
+    const val OFFLINE_MIN_ZOOM = 6
+
+    fun tileUrl(z: Int, x: Int, y: Int): String = String.format(Locale.US, TILE_URL, z, x, y)
 
     /** Opened when the preview is clicked. */
     fun linkFor(lat: Double, lon: Double): String =
-        String.format(Locale.US, "https://mapy.com/fnc/v1/showmap?mapset=aerial&center=%.5f,%.5f&zoom=17&marker=true", lon, lat)
+        String.format(Locale.US, "https://mapy.com/fnc/v1/showmap?mapset=outdoor&center=%.5f,%.5f&zoom=15&marker=true", lon, lat)
 }
 
-/** Downloads map tiles once and keeps them in memory and in ~/.kv4p-desktop/tiles. */
-private object TileCache {
+/** Web Mercator tile maths. */
+internal object TileMath {
+    /** Position of [lat]/[lon] in tile pixels (256 per tile) at zoom [z]. */
+    fun pixel(lat: Double, lon: Double, z: Int): Pair<Double, Double> {
+        val world = 256.0 * (1 shl z)
+        val latRad = lat.coerceIn(-85.0, 85.0) * PI / 180
+        return (lon + 180) / 360 * world to (1 - ln(tan(latRad) + 1 / cos(latRad)) / PI) / 2 * world
+    }
+}
+
+/** Downloads map tiles once and keeps them in memory and in ~/.kv4p-desktop/tiles/<source>. */
+internal object TileCache {
     private const val TAG = "MapTiles"
     private const val MAX_IN_MEMORY = 150
-    private val dir = File(System.getProperty("user.home"), ".kv4p-desktop/tiles")
+    val dir = File(System.getProperty("user.home"), ".kv4p-desktop/tiles/${MapConfig.CACHE_NAME}")
     private val memory = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>) = size > MAX_IN_MEMORY
     }
     @Volatile private var failedAt = 0L
 
-    suspend fun tile(z: Int, x: Int, y: Int): ImageBitmap? = withContext(Dispatchers.IO) {
+    fun file(z: Int, x: Int, y: Int) = File(dir, "$z/$x/$y.png")
+
+    /** From memory or disk only; never touches the network. */
+    fun cached(z: Int, x: Int, y: Int): ImageBitmap? {
         val key = "$z/$x/$y"
-        synchronized(memory) { memory[key] }?.let { return@withContext it }
-        val file = File(dir, "$key.jpg")
-        val bytes = if (file.isFile) file.readBytes() else download(z, x, y)?.also {
-            runCatching { file.parentFile.mkdirs(); file.writeBytes(it) }
-        }
-        val image = bytes?.let { runCatching { org.jetbrains.skia.Image.makeFromEncoded(it).toComposeImageBitmap() }.getOrNull() }
-        if (image != null) synchronized(memory) { memory[key] = image }
-        image
+        synchronized(memory) { memory[key] }?.let { return it }
+        val f = file(z, x, y)
+        if (!f.isFile) return null
+        return decode(f.readBytes())?.also { synchronized(memory) { memory[key] = it } }
     }
 
-    private fun download(z: Int, x: Int, y: Int): ByteArray? {
+    suspend fun tile(z: Int, x: Int, y: Int): ImageBitmap? = withContext(Dispatchers.IO) {
+        cached(z, x, y)?.let { return@withContext it }
         // After a failure (offline), don't retry for every row in the list.
-        if (System.currentTimeMillis() - failedAt < 60_000) return null
-        return try {
-            val conn = URI(String.format(Locale.US, MapConfig.TILE_URL, z, y, x)).toURL().openConnection() as HttpURLConnection
-            conn.connectTimeout = 5000
-            conn.readTimeout = 8000
-            conn.setRequestProperty("User-Agent", "kv4p-ht-desktop")
-            try {
-                if (conn.responseCode == 200) conn.inputStream.readBytes() else null
-            } finally {
-                conn.disconnect()
-            }
+        if (System.currentTimeMillis() - failedAt < 60_000) return@withContext null
+        val bytes = try {
+            download(z, x, y)
         } catch (e: Exception) {
             Log.w(TAG, "Map tile $z/$x/$y: ${e.message}")
             failedAt = System.currentTimeMillis()
             null
+        } ?: return@withContext null
+        save(z, x, y, bytes)
+        decode(bytes)?.also { synchronized(memory) { memory["$z/$x/$y"] = it } }
+    }
+
+    private fun decode(bytes: ByteArray): ImageBitmap? =
+        runCatching { org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+
+    fun save(z: Int, x: Int, y: Int, bytes: ByteArray) {
+        runCatching {
+            val f = file(z, x, y)
+            f.parentFile.mkdirs()
+            val tmp = File(f.parentFile, f.name + ".part")
+            tmp.writeBytes(bytes)
+            tmp.renameTo(f)
+        }
+    }
+
+    /** One tile from the network; null for a non-200 answer, throws when there is no connection. */
+    fun download(z: Int, x: Int, y: Int): ByteArray? {
+        val conn = URI(MapConfig.tileUrl(z, x, y)).toURL().openConnection() as HttpURLConnection
+        conn.connectTimeout = 5000
+        conn.readTimeout = 10000
+        conn.setRequestProperty("User-Agent", "kv4p-ht-desktop")
+        try {
+            return if (conn.responseCode == 200) conn.inputStream.readBytes() else null
+        } finally {
+            conn.disconnect()
         }
     }
 }
 
-private class Placed(val image: ImageBitmap?, val offset: IntOffset)
+/** A tile image (or the part of a coarser tile that covers it) and where it goes in the preview. */
+private class Placed(val image: ImageBitmap?, val src: IntOffset, val srcSize: Int, val offset: IntOffset)
 
 /**
- * Small aerial map centred on [lat]/[lon] with a marker; a click opens [MapConfig.linkFor]
+ * The tile at z/x/y; when it is not available (offline, outside the downloaded area) the
+ * matching part of a coarser cached tile, scaled up.
+ */
+private suspend fun tileOrCoarser(z: Int, x: Int, y: Int, offset: IntOffset): Placed {
+    TileCache.tile(z, x, y)?.let { return Placed(it, IntOffset.Zero, 256, offset) }
+    return withContext(Dispatchers.IO) {
+        for (d in 1..6) {
+            val image = TileCache.cached(z - d, x shr d, y shr d) ?: continue
+            val part = 256 shr d
+            return@withContext Placed(image, IntOffset((x - (x shr d shl d)) * part, (y - (y shr d shl d)) * part), part, offset)
+        }
+        Placed(null, IntOffset.Zero, 256, offset)
+    }
+}
+
+/**
+ * Small topographic map centred on [lat]/[lon] with a marker; a click opens [MapConfig.linkFor]
  * in the browser. Tiles are drawn 1 tile pixel per dp.
  */
 @Composable
@@ -110,11 +164,7 @@ fun MapPreview(lat: Double, lon: Double, modifier: Modifier = Modifier) {
     val widthDp = 176
     val heightDp = 96
     val z = MapConfig.ZOOM
-    // Web Mercator position of the station, in tile pixels at zoom z.
-    val world = 256.0 * (1 shl z)
-    val latRad = lat * PI / 180
-    val cx = (lon + 180) / 360 * world
-    val cy = (1 - ln(tan(latRad) + 1 / cos(latRad)) / PI) / 2 * world
+    val (cx, cy) = TileMath.pixel(lat, lon, z)
     val left = cx - widthDp / 2.0
     val top = cy - heightDp / 2.0
 
@@ -123,9 +173,7 @@ fun MapPreview(lat: Double, lon: Double, modifier: Modifier = Modifier) {
             val xs = floor(left / 256).toInt()..floor((left + widthDp) / 256).toInt()
             val ys = floor(top / 256).toInt()..floor((top + heightDp) / 256).toInt()
             xs.flatMap { x -> ys.map { y -> x to y } }.map { (x, y) ->
-                async {
-                    Placed(TileCache.tile(z, x, y), IntOffset((x * 256 - left).toInt(), (y * 256 - top).toInt()))
-                }
+                async { tileOrCoarser(z, x, y, IntOffset((x * 256 - left).toInt(), (y * 256 - top).toInt())) }
             }.awaitAll()
         }
     }
@@ -146,6 +194,8 @@ fun MapPreview(lat: Double, lon: Double, modifier: Modifier = Modifier) {
                 val image = t.image ?: return@forEach
                 drawImage(
                     image,
+                    srcOffset = t.src,
+                    srcSize = IntSize(t.srcSize, t.srcSize),
                     dstOffset = IntOffset((t.offset.x * scale).toInt(), (t.offset.y * scale).toInt()),
                     dstSize = IntSize((256 * scale).toInt() + 1, (256 * scale).toInt() + 1),
                 )

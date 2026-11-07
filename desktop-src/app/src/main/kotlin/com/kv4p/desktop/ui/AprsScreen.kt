@@ -353,9 +353,45 @@ private fun AprsSettings(vm: RadioViewModel, modifier: Modifier) {
                 Text("Digipeat (WIDE1-1 fill-in)", style = MaterialTheme.typography.bodySmall)
             }
         }
+        OfflineMapRow(vm.myPosition)
         Text(
             "Messages addressed to your callsign are acknowledged automatically. " +
                 "Digipeat repeats nearby packets, like the Android app.",
+            style = MaterialTheme.typography.labelSmall,
+            color = Kv4pColors.MediumGray,
+        )
+    }
+}
+
+/** Download the map around your position so the previews work without internet. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OfflineMapRow(position: DoubleArray?) {
+    var radius by remember { mutableStateOf(OfflineMaps.RADII_KM[1]) }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Offline map", style = MaterialTheme.typography.bodyMedium)
+        Picker("Area", "$radius km around me", OfflineMaps.RADII_KM.map { "$it km around me" }) { label ->
+            radius = label.takeWhile { it.isDigit() }.toInt()
+        }
+        if (OfflineMaps.running) {
+            OutlinedButton(onClick = { OfflineMaps.cancel() }) { Text("Stop") }
+        } else {
+            OutlinedButton(
+                onClick = { position?.let { OfflineMaps.download(it[0], it[1], radius) } },
+                enabled = position != null,
+            ) { Text("Download") }
+        }
+        Text(
+            when {
+                position == null -> "Set your position first"
+                OfflineMaps.running -> OfflineMaps.status
+                else -> (listOf(OfflineMaps.estimate(position[0], position[1], radius)) +
+                    listOf(OfflineMaps.status).filter { it.isNotEmpty() }).joinToString(" · ")
+            },
             style = MaterialTheme.typography.labelSmall,
             color = Kv4pColors.MediumGray,
         )

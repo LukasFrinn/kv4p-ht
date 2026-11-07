@@ -139,6 +139,9 @@ cd desktop-src
 
 - APRS station symbols: the aprs.fi symbol set by Heikki Hannikainen, OH7LZB,
   <https://github.com/hessu/aprs-symbols/> (`app/src/main/resources/aprs-symbols`).
-- APRS map previews: aerial imagery tiles © Esri (World Imagery), cached in
-  `~/.kv4p-desktop/tiles`. Clicking a preview opens the position on mapy.com;
-  both are set in `MapConfig` (`app/.../ui/MapPreview.kt`).
+- APRS map previews: topographic tiles © OpenTopoMap (CC-BY-SA), map data
+  © OpenStreetMap contributors, cached in `~/.kv4p-desktop/tiles/opentopomap`.
+  APRS settings → "Offline map" downloads 10-30 km around your position (zoom 6-14,
+  one tile at a time, as OpenTopoMap asks to avoid mass downloads). Clicking a
+  preview opens the position on mapy.com (hiking map); both are set in
+  `MapConfig` (`app/.../ui/MapPreview.kt`).
