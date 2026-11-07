@@ -86,6 +86,28 @@ public class AprsControllerTest {
     }
 
     @Test
+    public void positionKeepsSymbolAndLaterMessageGetsIt() throws Exception {
+        // OK1ABC-9 beacons as a car ('/' '>'), then sends a message without a position.
+        aprs.handleAx25(frame("OK1ABC-9", AprsController.DEFAULT_DIGIPEATERS,
+            "!4814.15N/01702.73E>moving".getBytes(StandardCharsets.UTF_8)));
+        aprs.handleAx25(frame("OK1ABC-9", AprsController.DEFAULT_DIGIPEATERS,
+            MessagePacket.createMessagePayload("OM1XYZ", "hi", "3")));
+
+        assertEquals(2, entries.size());
+        AprsController.Entry pos = entries.get(0);
+        assertEquals('/', pos.symbolTable);
+        assertEquals('>', pos.symbolCode);
+        assertFalse(pos.positionFromEarlier);
+
+        AprsController.Entry msg = entries.get(1);
+        assertEquals(AprsController.Kind.MESSAGE, msg.kind);
+        assertEquals('>', msg.symbolCode);
+        assertTrue(msg.positionFromEarlier);
+        assertEquals(48.2358, msg.lat, 0.001);
+        assertEquals(17.0455, msg.lon, 0.001);
+    }
+
+    @Test
     public void messageToSomeoneElseIsNotAcked() throws Exception {
         aprs.handleAx25(frame("OK1ABC", AprsController.DEFAULT_DIGIPEATERS,
             MessagePacket.createMessagePayload("OM1XYZ", "hello", "7")));

@@ -139,43 +139,53 @@ private fun AprsList(vm: RadioViewModel, modifier: Modifier) {
 @Composable
 private fun EntryRow(e: AprsController.Entry, me: DoubleArray?, @Suppress("UNUSED_PARAMETER") revision: Int) {
     val highlight = e.toMe || e.outgoing
-    Column(
+    val lat = e.lat
+    val lon = e.lon
+    Row(
         Modifier.fillMaxWidth()
             .background(if (highlight) Kv4pColors.PrimaryVeryFaint else Kv4pColors.Black, RoundedCornerShape(6.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(timeFormat.format(Instant.ofEpochMilli(e.timeMillis)), style = MonoStyle.copy(fontSize = 12.sp), color = Kv4pColors.MediumGray)
-            Text(kindLabel(e), style = MaterialTheme.typography.labelMedium, color = kindColor(e))
-            Text(
-                buildString {
-                    append(e.from ?: "?")
-                    if (e.to != null) append(" → ").append(if (e.to!!.startsWith("BLN")) "everyone (${e.to})" else e.to)
-                    if (e.relay != null) append("  (via ").append(e.relay).append(')')
-                },
-                fontWeight = FontWeight.Medium,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (e.kind == Kind.MESSAGE && e.outgoing && e.to?.startsWith("BLN") == false) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(timeFormat.format(Instant.ofEpochMilli(e.timeMillis)), style = MonoStyle.copy(fontSize = 12.sp), color = Kv4pColors.MediumGray)
+                Text(kindLabel(e), style = MaterialTheme.typography.labelMedium, color = kindColor(e))
+                if (hasAprsSymbol(e.symbolTable, e.symbolCode)) AprsSymbol(e.symbolTable, e.symbolCode, size = 22.dp)
                 Text(
-                    if (e.acked) "✓ delivered" else "sent",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (e.acked) androidx.compose.ui.graphics.Color(0xFF6FBF73) else Kv4pColors.MediumGray,
+                    buildString {
+                        append(e.from ?: "?")
+                        if (e.to != null) append(" → ").append(if (e.to!!.startsWith("BLN")) "everyone (${e.to})" else e.to)
+                        if (e.relay != null) append("  (via ").append(e.relay).append(')')
+                    },
+                    fontWeight = FontWeight.Medium,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
+                if (e.kind == Kind.MESSAGE && e.outgoing && e.to?.startsWith("BLN") == false) {
+                    Text(
+                        if (e.acked) "✓ delivered" else "sent",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (e.acked) androidx.compose.ui.graphics.Color(0xFF6FBF73) else Kv4pColors.MediumGray,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                distanceText(e, me)?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = Kv4pColors.PrimaryDeselected)
+                }
             }
-            Spacer(Modifier.weight(1f))
-            distanceText(e, me)?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = Kv4pColors.PrimaryDeselected)
+            val body = listOfNotNull(
+                e.text,
+                e.objectName?.let { "Object: $it" },
+                e.weather?.takeIf { it.isNotBlank() },
+                e.comment,
+            ).joinToString(" · ")
+            if (body.isNotBlank()) {
+                Text(body, style = MaterialTheme.typography.bodyMedium, color = Kv4pColors.Primary)
             }
         }
-        val body = listOfNotNull(
-            e.text,
-            e.objectName?.let { "Object: $it" },
-            e.weather?.takeIf { it.isNotBlank() },
-            e.comment,
-        ).joinToString(" · ")
-        if (body.isNotBlank()) {
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = Kv4pColors.Primary)
+        // Where the station is; a message shows the sender's last beaconed position.
+        if (lat != null && lon != null && !e.outgoing) {
+            MapPreview(lat, lon)
         }
     }
 }
@@ -199,7 +209,7 @@ private fun kindColor(e: AprsController.Entry) = when {
 private fun distanceText(e: AprsController.Entry, me: DoubleArray?): String? {
     val lat = e.lat ?: return null
     val lon = e.lon ?: return null
-    val pos = String.format(Locale.US, "%.4f, %.4f", lat, lon)
+    val pos = String.format(Locale.US, "%.4f, %.4f", lat, lon) + if (e.positionFromEarlier) " (last known)" else ""
     if (me == null || e.outgoing) return pos
     val km = AprsController.distanceKm(me[0], me[1], lat, lon)
     return String.format(Locale.US, "%s · %.1f km", pos, km)

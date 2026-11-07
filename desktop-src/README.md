@@ -134,3 +134,11 @@ cd desktop-src
 ./gradlew :app:run          # run from source
 ./gradlew :app:packageDeb   # or packageDmg on macOS
 ```
+
+## Credits
+
+- APRS station symbols: the aprs.fi symbol set by Heikki Hannikainen, OH7LZB,
+  <https://github.com/hessu/aprs-symbols/> (`app/src/main/resources/aprs-symbols`).
+- APRS map previews: aerial imagery tiles © Esri (World Imagery), cached in
+  `~/.kv4p-desktop/tiles`. Clicking a preview opens the position on mapy.com;
+  both are set in `MapConfig` (`app/.../ui/MapPreview.kt`).

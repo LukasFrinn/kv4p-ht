@@ -58,6 +58,11 @@ public final class AprsController {
         public Double lat;
         public Double lon;
         public String weather;
+        /** APRS symbol: table ('/', '\\' or an overlay character) and code; 0 when unknown. */
+        public char symbolTable;
+        public char symbolCode;
+        /** lat/lon and symbol were taken from an earlier position packet of the same station. */
+        public boolean positionFromEarlier;
         public int msgNum = -1;
         public boolean outgoing;
         public boolean toMe;
@@ -83,6 +88,8 @@ public final class AprsController {
     private final ScheduledExecutorService scheduler;
     private final Map<String, Long> digipeatDedup = new HashMap<>();
     private final List<Entry> pendingOutgoing = new ArrayList<>();
+    /** Last position packet per station, to show where a message sender is. */
+    private final Map<String, Entry> lastPositions = new HashMap<>();
     private int messageNumber = new Random().nextInt(MAX_MESSAGE_NUM);
     private long ackDelayMs = 1000;
 
@@ -165,6 +172,7 @@ public final class AprsController {
             markAcked(entry);
             return;
         }
+        rememberOrFillPosition(entry);
         sink.onEntry(entry);
         if (entry.kind == Kind.MESSAGE && entry.toMe && entry.msgNum != -1) {
             String to = entry.from.toUpperCase(Locale.ROOT);
@@ -200,6 +208,8 @@ public final class AprsController {
             e.kind = Kind.POSITION;
             e.lat = pos.getPosition().getLatitude();
             e.lon = pos.getPosition().getLongitude();
+            e.symbolTable = pos.getPosition().getSymbolTable();
+            e.symbolCode = pos.getPosition().getSymbolCode();
         }
 
         String comment = packet.getComment();
@@ -235,6 +245,26 @@ public final class AprsController {
             e.comment = "Raw: " + new String(info.getRawBytes(), StandardCharsets.UTF_8);
         }
         return e;
+    }
+
+    /** Remembers where stations are; gives a message the sender's last known position and symbol. */
+    private void rememberOrFillPosition(Entry e) {
+        if (e.from == null) return;
+        String key = e.from.toUpperCase(Locale.ROOT);
+        synchronized (lastPositions) {
+            if (e.lat != null && e.lon != null) {
+                lastPositions.put(key, e);
+            } else if (e.kind == Kind.MESSAGE) {
+                Entry last = lastPositions.get(key);
+                if (last != null) {
+                    e.lat = last.lat;
+                    e.lon = last.lon;
+                    e.symbolTable = last.symbolTable;
+                    e.symbolCode = last.symbolCode;
+                    e.positionFromEarlier = true;
+                }
+            }
+        }
     }
 
     private void markAcked(Entry ack) {
@@ -287,6 +317,8 @@ public final class AprsController {
         e.to = target;
         e.text = body;
         e.msgNum = num;
+        e.symbolTable = '/';
+        e.symbolCode = symbolCode;
         if (!target.startsWith("BLN")) {
             synchronized (pendingOutgoing) {
                 pendingOutgoing.add(e);
@@ -328,6 +360,8 @@ public final class AprsController {
         e.kind = Kind.BEACON_SENT;
         e.outgoing = true;
         e.from = callsign;
+        e.symbolTable = '/';
+        e.symbolCode = symbolCode;
         e.lat = lat;
         e.lon = lon;
         e.comment = comment;
