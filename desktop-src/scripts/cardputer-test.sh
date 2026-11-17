@@ -4,7 +4,7 @@
 # then writes everything to ~/kv4p-device-test.txt to send back.
 #
 # Usage:  curl -fsSL https://raw.githubusercontent.com/LukasFrinn/kv4p-ht/desktop-app/desktop-src/scripts/cardputer-test.sh | bash
-# Leave the device alone while it runs; close the app window early only if it hangs the device.
+# Without X11/Wayland (framebuffer-only devices) it only collects the info and does not start the app.
 set -uo pipefail
 
 OUT="$HOME/kv4p-device-test.txt"
@@ -29,10 +29,27 @@ df -h / | tail -1
 section "Display"
 echo "XDG_SESSION_TYPE=${XDG_SESSION_TYPE:-}  DISPLAY=${DISPLAY:-}  WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}"
 ls -l /dev/fb* /dev/dri 2>/dev/null
-for f in /sys/class/graphics/fb*/virtual_size; do [ -f "$f" ] && echo "$f: $(cat "$f")"; done
+for d in /sys/class/graphics/fb*; do
+  [ -d "$d" ] || continue
+  echo "$(basename "$d"): name=$(cat "$d/name" 2>/dev/null) size=$(cat "$d/virtual_size" 2>/dev/null) bpp=$(cat "$d/bits_per_pixel" 2>/dev/null) stride=$(cat "$d/stride" 2>/dev/null) rotate=$(cat "$d/rotate" 2>/dev/null)"
+done
+command -v fbset >/dev/null && fbset 2>/dev/null | head -4
 command -v xrandr >/dev/null && [ -n "${DISPLAY:-}" ] && xrandr --current 2>/dev/null | head -3
 command -v glxinfo >/dev/null && [ -n "${DISPLAY:-}" ] && glxinfo -B 2>/dev/null | grep -E 'renderer|OpenGL version'
 ps -eo comm | grep -m5 -E '^(Xorg|Xwayland|labwc|wayfire|weston|openbox|lxsession|cage)$' || echo "no known X/Wayland server process found"
+
+section "Keyboard and other input devices"
+grep -E '^N: Name=' /proc/bus/input/devices 2>/dev/null
+ls -l /dev/input/ 2>/dev/null | grep event
+echo "user groups: $(id -nG)"
+
+section "Audio"
+aplay -l 2>/dev/null | grep -E '^card' || echo "aplay not found or no sound cards"
+
+section "What is running (top memory users)"
+ps -eo rss,comm --sort=-rss | head -12
+ps -eo comm | grep -q -x java && echo "a java process is running"
+command -v java >/dev/null && java -version 2>&1 | head -1
 
 section "App"
 ARCH=$(dpkg --print-architecture 2>/dev/null)
@@ -42,6 +59,13 @@ if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "amd64" ]; then
   echo; echo "Report saved to $OUT"
   exit 0
 fi
+if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+  echo "No X11/Wayland session: the current app needs one, so it is not started."
+  echo "The information above is enough to plan a framebuffer version."
+  echo; echo "Report saved to $OUT - send it back."
+  exit 0
+fi
+
 if [ ! -x "$APP" ]; then
   echo "App not installed. Install it first with:"
   echo "  curl -fsSL https://raw.githubusercontent.com/LukasFrinn/kv4p-ht/desktop-app/desktop-src/scripts/install-linux.sh | bash"
@@ -50,11 +74,6 @@ if [ ! -x "$APP" ]; then
   exit 0
 fi
 dpkg-query -W -f='installed package: ${Package} ${Version}\n' kv4p-ht-desktop 2>/dev/null
-if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-  echo "WARNING: no DISPLAY / WAYLAND_DISPLAY in this shell - the app needs a graphical session."
-  echo "Run this from a terminal inside the desktop, or try: DISPLAY=:0 bash cardputer-test.sh"
-fi
-
 pkill -f '/opt/kv4p-ht-desktop/' 2>/dev/null && sleep 2
 section "Running the app for ${SECONDS_TO_RUN} s"
 LOG=$(mktemp)
