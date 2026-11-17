@@ -12,7 +12,12 @@ kotlin {
 
 dependencies {
     implementation(project(":core"))
-    implementation(compose.desktop.currentOs)
+    // -PtargetOs=linux-arm64 builds a jar for another system (e.g. a Linux arm64 .jar on a Mac).
+    when (findProperty("targetOs")) {
+        "linux-arm64" -> implementation(compose.desktop.linux_arm64)
+        "linux-x64" -> implementation(compose.desktop.linux_x64)
+        else -> implementation(compose.desktop.currentOs)
+    }
     implementation(compose.material3)
     implementation(libs.coroutines.swing)
 }
