@@ -25,7 +25,7 @@ import kotlin.system.exitProcess
 fun runFramebuffer(args: Array<String>) {
     fun arg(name: String): String? = args.indexOf(name).takeIf { it >= 0 && it + 1 < args.size }?.let { args[it + 1] }
     System.setProperty("java.awt.headless", "true")
-    // PipeWire holds the sound card; play and record through aplay/arecord (see AlsaAudio).
+    // PipeWire holds the sound card; play and record through its tools (see AlsaAudio).
     if (System.getProperty("kv4p.audio") == null) System.setProperty("kv4p.audio", "alsa")
 
     val fb = try {

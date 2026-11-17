@@ -44,7 +44,7 @@ class AudioOutput {
             Log.i(TAG, "Audio output opened: ${l.bufferSize} byte buffer")
         } catch (e: Exception) {
             Log.e(TAG, "Could not open audio output: ${e.message}")
-            // Java Sound can't reach devices that PipeWire/PulseAudio holds; aplay can.
+            // Java Sound cannot reach devices that PipeWire/PulseAudio holds; the sound server tools can.
             if (AlsaAudio.available) alsa = AlsaPlayer.start()
         }
     }

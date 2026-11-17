@@ -37,7 +37,7 @@ class MicInput(
                 priority = Thread.MAX_PRIORITY
                 start()
             }
-            Log.i(TAG, "Microphone opened via arecord (${AlsaAudio.device})")
+            Log.i(TAG, "Microphone opened via ${AlsaAudio.description}")
             return true
         }
         val l = try {
@@ -82,7 +82,7 @@ class MicInput(
         try {
             captureFrom { b, off, len -> input.read(b, off, len) }
         } catch (e: java.io.IOException) {
-            if (running) Log.w(TAG, "arecord stopped: ${e.message}")
+            if (running) Log.w(TAG, "Recorder stopped: ${e.message}")
         }
     }
 
