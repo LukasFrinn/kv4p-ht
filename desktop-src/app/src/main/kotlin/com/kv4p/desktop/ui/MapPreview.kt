@@ -160,15 +160,20 @@ private suspend fun tileOrCoarser(z: Int, x: Int, y: Int, offset: IntOffset): Pl
  * in the browser. Tiles are drawn 1 tile pixel per dp.
  */
 @Composable
-fun MapPreview(lat: Double, lon: Double, modifier: Modifier = Modifier) {
-    val widthDp = 176
-    val heightDp = 96
-    val z = MapConfig.ZOOM
+fun MapPreview(
+    lat: Double,
+    lon: Double,
+    modifier: Modifier = Modifier,
+    widthDp: Int = 176,
+    heightDp: Int = 96,
+    z: Int = MapConfig.ZOOM,
+    onClick: (() -> Unit)? = { openInBrowser(MapConfig.linkFor(lat, lon)) },
+) {
     val (cx, cy) = TileMath.pixel(lat, lon, z)
     val left = cx - widthDp / 2.0
     val top = cy - heightDp / 2.0
 
-    val tiles by produceState<List<Placed>?>(null, lat, lon) {
+    val tiles by produceState<List<Placed>?>(null, lat, lon, z, widthDp, heightDp) {
         value = coroutineScope {
             val xs = floor(left / 256).toInt()..floor((left + widthDp) / 256).toInt()
             val ys = floor(top / 256).toInt()..floor((top + heightDp) / 256).toInt()
@@ -184,8 +189,7 @@ fun MapPreview(lat: Double, lon: Double, modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(6.dp))
             .background(Kv4pColors.PrimaryVeryFaint)
             .border(1.dp, Kv4pColors.MediumGray, RoundedCornerShape(6.dp))
-            .pointerHoverIcon(PointerIcon.Hand)
-            .clickable { openInBrowser(MapConfig.linkFor(lat, lon)) },
+            .then(if (onClick != null) Modifier.pointerHoverIcon(PointerIcon.Hand).clickable(onClick = onClick) else Modifier),
     ) {
         val loaded = tiles
         Canvas(Modifier.fillMaxSize()) {
@@ -208,7 +212,7 @@ fun MapPreview(lat: Double, lon: Double, modifier: Modifier = Modifier) {
         when {
             loaded == null -> Text("Loading map…", fontSize = 11.sp, color = Kv4pColors.MediumGray,
                 modifier = Modifier.align(Alignment.Center))
-            loaded.all { it.image == null } -> Text("Map unavailable - click to open", fontSize = 11.sp,
+            loaded.all { it.image == null } -> Text(if (onClick != null) "Map unavailable - click to open" else "No map here (offline)", fontSize = 11.sp,
                 color = Kv4pColors.PrimaryDeselected, modifier = Modifier.align(Alignment.Center))
         }
         Text(

@@ -50,4 +50,34 @@ if ! id -nG "$USER" | tr ' ' '\n' | grep -qx dialout; then
   echo "Log out and back in (or reboot) once so the radio's port can be opened."
 fi
 
+# M5Stack Cardputer Zero: also put the compact framebuffer version into APPLaunch,
+# the launcher on the built-in 320x170 screen.
+APPLAUNCH=/usr/share/APPLaunch
+if [ -d "$APPLAUNCH/applications" ]; then
+  echo "Cardputer Zero detected: adding kv4p HT to APPLaunch..."
+  sudo mkdir -p "$APPLAUNCH/bin" "$APPLAUNCH/share/images"
+  sudo tee "$APPLAUNCH/bin/kv4p-ht" >/dev/null <<'EOF'
+#!/bin/sh
+# kv4p HT on the Cardputer Zero's built-in screen (no X11/Wayland needed).
+# Small heap and a simple JIT so it fits next to the launcher in ~350 MB of RAM.
+export JAVA_TOOL_OPTIONS="-Xmx80m -Xss512k -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=32m"
+exec /opt/kv4p-ht-desktop/bin/kv4p-ht-desktop --framebuffer "$@"
+EOF
+  sudo chmod 755 "$APPLAUNCH/bin/kv4p-ht"
+  ICON=$(find /opt/kv4p-ht-desktop -maxdepth 2 -name '*.png' | head -1)
+  [ -n "$ICON" ] && sudo cp "$ICON" "$APPLAUNCH/share/images/kv4p-ht.png"
+  sudo tee "$APPLAUNCH/applications/kv4p-ht.desktop" >/dev/null <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=kv4p HT
+Comment=kv4p HT radio: voice, memories and APRS
+Exec=/usr/share/APPLaunch/bin/kv4p-ht
+Icon=share/images/kv4p-ht.png
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+EOF
+  echo "kv4p HT is now in APPLaunch (log: ~/.kv4p-desktop/kv4p.log)."
+fi
+
 echo "Done (build ${RUN_ID}). Start it from the menu or run: /opt/kv4p-ht-desktop/bin/kv4p-ht-desktop"

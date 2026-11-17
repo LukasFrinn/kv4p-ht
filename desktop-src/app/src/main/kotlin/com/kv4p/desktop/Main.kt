@@ -36,6 +36,7 @@ fun main(args: Array<String>) {
     when {
         "--list-ports" in args -> listPorts()
         "--probe" in args -> probe(args)
+        "--framebuffer" in args -> com.kv4p.desktop.cardputer.runFramebuffer(args)
         else -> runUi()
     }
 }

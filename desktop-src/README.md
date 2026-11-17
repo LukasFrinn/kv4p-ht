@@ -108,6 +108,16 @@ doesn't, install the Silicon Labs CP210x VCP driver.
 
 **Any system with Java 17+** - the `.jar` artifact runs with `java -jar <file>.jar`.
 
+**M5Stack Cardputer Zero (built-in 320x170 screen)** - the Linux install script
+above also adds *kv4p HT* to APPLaunch. That entry starts the app with
+`--framebuffer`: a compact, keyboard-only UI drawn straight to `/dev/fb0`, keys
+read from `/dev/input` (no X11/Wayland), small JVM heap. Keys: Space = PTT,
+Tab = Radio → Memories → APRS, arrows (or Fn + `; . , /`) to move, digits +
+Enter to tune, H shows all keys, Esc twice or Ctrl+Q quits. It connects by
+itself when the radio is plugged in. Settings, memories and the APRS station are
+shared with the full app (e.g. on HDMI), which is where they are edited.
+Options: `--fb /dev/fbN`, `--keyboard /dev/input/eventN`.
+
 ## Firmware
 
 The app needs the firmware from the official v2.0.0.1 release (firmware v17,
