@@ -23,10 +23,23 @@ class MicInput(
     @Volatile private var running = false
     private var thread: Thread? = null
     private var line: TargetDataLine? = null
+    private var process: Process? = null
 
     @Synchronized
     fun start(): Boolean {
         if (running) return true
+        if (AlsaAudio.preferred) {
+            val p = AlsaAudio.record() ?: return false
+            process = p
+            running = true
+            thread = Thread({ captureStream(p.inputStream) }, "kv4p-mic").apply {
+                isDaemon = true
+                priority = Thread.MAX_PRIORITY
+                start()
+            }
+            Log.i(TAG, "Microphone opened via arecord (${AlsaAudio.device})")
+            return true
+        }
         val l = try {
             AudioSystem.getTargetDataLine(format).also {
                 it.open(format, DesktopRadioSession.AUDIO_FRAME_SAMPLES * 2 * 4)
@@ -50,6 +63,8 @@ class MicInput(
     @Synchronized
     fun stop() {
         running = false
+        process?.destroy()
+        process = null
         line?.let {
             it.stop()
             it.flush()
@@ -61,14 +76,24 @@ class MicInput(
         onLevel(0f)
     }
 
-    private fun capture(l: TargetDataLine) {
+    private fun capture(l: TargetDataLine) = captureFrom { b, off, len -> l.read(b, off, len) }
+
+    private fun captureStream(input: java.io.InputStream) {
+        try {
+            captureFrom { b, off, len -> input.read(b, off, len) }
+        } catch (e: java.io.IOException) {
+            if (running) Log.w(TAG, "arecord stopped: ${e.message}")
+        }
+    }
+
+    private fun captureFrom(source: (ByteArray, Int, Int) -> Int) {
         val frame = FloatArray(DesktopRadioSession.AUDIO_FRAME_SAMPLES)
         val bytes = ByteArray(frame.size * 2)
         var silentFrames = 0
         while (running) {
             var read = 0
             while (read < bytes.size && running) {
-                val n = l.read(bytes, read, bytes.size - read)
+                val n = source(bytes, read, bytes.size - read)
                 if (n <= 0) break
                 read += n
             }

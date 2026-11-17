@@ -13,6 +13,7 @@ import javax.sound.sampled.SourceDataLine
 class AudioOutput {
     private val format = AudioFormat(DesktopRadioSession.AUDIO_SAMPLE_RATE.toFloat(), 16, 1, true, false)
     private var line: SourceDataLine? = null
+    private var alsa: AlsaPlayer? = null
     private val bytes = ByteArray(DesktopRadioSession.AUDIO_FRAME_SAMPLES * 2)
 
     /** Silences playback while transmitting, like the Android app. */
@@ -29,7 +30,11 @@ class AudioOutput {
 
     @Synchronized
     fun start() {
-        if (line != null) return
+        if (line != null || alsa != null) return
+        if (AlsaAudio.preferred) {
+            alsa = AlsaPlayer.start()
+            if (alsa != null) return
+        }
         try {
             val l = AudioSystem.getSourceDataLine(format)
             // ~250 ms buffer (2 bytes/sample): absorbs USB jitter while keeping latency low.
@@ -38,12 +43,16 @@ class AudioOutput {
             line = l
             Log.i(TAG, "Audio output opened: ${l.bufferSize} byte buffer")
         } catch (e: Exception) {
-            Log.e(TAG, "Could not open audio output", e)
+            Log.e(TAG, "Could not open audio output: ${e.message}")
+            // Java Sound can't reach devices that PipeWire/PulseAudio holds; aplay can.
+            if (AlsaAudio.available) alsa = AlsaPlayer.start()
         }
     }
 
     @Synchronized
     fun stop() {
+        alsa?.stop()
+        alsa = null
         line?.let {
             it.stop()
             it.flush()
@@ -54,7 +63,9 @@ class AudioOutput {
 
     /** Called on the radio thread for every decoded frame. */
     fun write(pcm: FloatArray, samples: Int) {
-        val l = line ?: return
+        val l = line
+        val a = alsa
+        if (l == null && a == null) return
         if (muted) return
         val gain = volume
         var j = 0
@@ -64,7 +75,9 @@ class AudioOutput {
             bytes[j++] = (s and 0xFF).toByte()
             bytes[j++] = ((s shr 8) and 0xFF).toByte()
         }
-        if (l.available() >= j) {
+        if (a != null) {
+            a.offer(bytes.copyOf(j))
+        } else if (l != null && l.available() >= j) {
             l.write(bytes, 0, j)
         }
     }

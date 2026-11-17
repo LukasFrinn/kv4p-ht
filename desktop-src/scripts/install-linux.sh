@@ -64,6 +64,8 @@ if [ -d "$APPLAUNCH/applications" ]; then
 #!/bin/sh
 # kv4p HT on the Cardputer Zero's built-in screen (no X11/Wayland needed).
 # Small heap and a simple JIT so it fits next to the launcher in ~350 MB of RAM.
+# Sound goes through PipeWire, which needs the user's runtime folder.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export JAVA_TOOL_OPTIONS="-Xmx80m -Xss512k -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=32m"
 exec /opt/kv4p-ht-desktop/bin/kv4p-ht-desktop --framebuffer "$@"
 EOF
