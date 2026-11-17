@@ -80,7 +80,15 @@ class MicInput(
 
     private fun captureStream(input: java.io.InputStream) {
         try {
-            captureFrom { b, off, len -> input.read(b, off, len) }
+            val frameBytes = DesktopRadioSession.AUDIO_FRAME_SAMPLES * 2
+            captureFrom { b, off, len ->
+                // If we fell behind (busy CPU), drop the oldest audio instead of
+                // transmitting it late: keep at most ~3 frames (120 ms) waiting.
+                if (off == 0) {
+                    while (input.available() > frameBytes * 3) input.skipNBytes(frameBytes.toLong())
+                }
+                input.read(b, off, len)
+            }
         } catch (e: java.io.IOException) {
             if (running) Log.w(TAG, "Recorder stopped: ${e.message}")
         }

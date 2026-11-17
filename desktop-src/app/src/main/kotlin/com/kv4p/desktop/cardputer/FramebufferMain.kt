@@ -38,6 +38,13 @@ fun runFramebuffer(args: Array<String>) {
     val keyboard = KeyInput.findKeyboard(arg("--keyboard"))
     if (keyboard == null) Log.w(TAG, "No keyboard found in /dev/input")
 
+    // Compile the Opus codec before the first PTT (otherwise ~1 s of mic delay at first).
+    Thread({
+        val t = System.currentTimeMillis()
+        com.vagell.kv4pht.radio.DesktopRadioSession.warmUpCodec(400)
+        Log.i(TAG, "Audio codec warmed up in ${System.currentTimeMillis() - t} ms")
+    }, "kv4p-warmup").apply { isDaemon = true; priority = Thread.MIN_PRIORITY; start() }
+
     SwingUtilities.invokeLater { start(fb, keyboard) }
 }
 

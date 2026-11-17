@@ -482,6 +482,29 @@ public final class DesktopRadioSession implements AutoCloseable {
     }
 
     /**
+     * Runs the Opus encoder and decoder on throw-away instances for a while, so the JIT has
+     * compiled them before the first transmission. On slow boards (Cardputer Zero) the
+     * interpreted encoder is slower than real time at first, which shows up as ~1 s of
+     * microphone delay right after start. Call from a background thread.
+     */
+    public static void warmUpCodec(int frames) {
+        OpusUtils.OpusEncoderWrapper enc = new OpusUtils.OpusEncoderWrapper(AUDIO_SAMPLE_RATE, AUDIO_FRAME_SAMPLES);
+        OpusUtils.OpusDecoderWrapper dec = new OpusUtils.OpusDecoderWrapper(AUDIO_SAMPLE_RATE, AUDIO_FRAME_SAMPLES);
+        float[] pcm = new float[AUDIO_FRAME_SAMPLES];
+        float[] out = new float[AUDIO_FRAME_SAMPLES];
+        byte[] packet = new byte[4000];
+        java.util.Random random = new java.util.Random(1);
+        for (int f = 0; f < frames; f++) {
+            for (int i = 0; i < pcm.length; i++) {
+                // Speech-like test signal: a tone plus noise.
+                pcm[i] = 0.3f * (float) Math.sin((f * pcm.length + i) * 0.06) + 0.05f * (random.nextFloat() - 0.5f);
+            }
+            int len = enc.encode(pcm, packet);
+            if (len > 0) dec.decode(packet, 0, len, out);
+        }
+    }
+
+    /**
      * Queues one AX.25 frame (without CRC) for the firmware to transmit as
      * AFSK1200 - the same path the Android app uses for APRS. Refused while
      * not connected, while voice PTT is active, or outside the TX band.
