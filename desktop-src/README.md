@@ -112,7 +112,7 @@ doesn't, install the Silicon Labs CP210x VCP driver.
 above also adds *kv4p HT* to APPLaunch. That entry starts the app with
 `--framebuffer`: a compact, keyboard-only UI drawn straight to `/dev/fb0`, keys
 read from `/dev/input` (no X11/Wayland), small JVM heap. Keys: Space = PTT,
-Tab = Radio → Memories → APRS, arrows (or Fn + `; . , /`) to move, digits +
+Tab = Radio → Memories → APRS, arrows (Fn + F/Z/X/C) to move, Fn + S/D volume, digits +
 Enter to tune, H shows all keys, Esc twice or Ctrl+Q quits. It connects by
 itself when the radio is plugged in. Settings, memories and the APRS station are
 shared with the full app (e.g. on HDMI), which is where they are edited.

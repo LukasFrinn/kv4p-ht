@@ -81,13 +81,23 @@ class CompactUi(private val vm: RadioViewModel, private val onExit: () -> Unit) 
 
     private enum class Nav { UP, DOWN, LEFT, RIGHT }
 
-    /** Arrow keys; also Fn + ; . , / (the Cardputer's arrow legends), or those keys alone when not typing. */
+    /**
+     * Arrow keys. The Cardputer Zero's arrows are Fn + F / Z / X / C (up, left, down, right), which
+     * its keyboard driver may send as arrow keys or as Fn plus the letter. ; . , / (the original
+     * Cardputer's arrows) also work while not typing.
+     */
     private fun navOf(k: KeyPress): Nav? = when (k.code) {
         Keys.UP -> Nav.UP
         Keys.DOWN -> Nav.DOWN
         Keys.LEFT -> Nav.LEFT
         Keys.RIGHT -> Nav.RIGHT
-        else -> if (k.fn || entry == null) when (k.code) {
+        else -> if (k.fn) when (k.code) {
+            Keys.F -> Nav.UP
+            Keys.Z -> Nav.LEFT
+            Keys.X -> Nav.DOWN
+            Keys.C -> Nav.RIGHT
+            else -> null
+        } else if (entry == null) when (k.code) {
             Keys.SEMICOLON -> Nav.UP
             Keys.DOT -> Nav.DOWN
             Keys.COMMA -> Nav.LEFT
@@ -110,9 +120,19 @@ class CompactUi(private val vm: RadioViewModel, private val onExit: () -> Unit) 
         }
         if (!k.pressed) return
         if (k.ctrl && (k.char == 'q' || k.char == 'Q')) return onExit()
-        if (entry != null) return typing(k)
-        if (k.code == Keys.TAB) return nextScreen()
+        // Hardware volume keys (Fn + S / D on the Cardputer Zero), anywhere.
+        if (k.code == Keys.VOLUME_UP || k.code == Keys.VOLUME_DOWN) {
+            vm.updateVolumeSlider((vm.volumeSlider + if (k.code == Keys.VOLUME_UP) 0.05f else -0.05f).coerceIn(0f, 1f))
+            return
+        }
         val nav = navOf(k)
+        if (entry != null) {
+            // Fn + key is a function (arrow, volume...), not a letter to type.
+            if (k.fn) return
+            return typing(k)
+        }
+        if (k.code == Keys.TAB) return nextScreen()
+        if (nav == null && k.fn) return
         when (screen) {
             Screen.RADIO -> radioKey(k, nav)
             Screen.MEMORIES -> memoriesKey(k, nav)
@@ -615,10 +635,10 @@ private fun HelpPage() {
     val keys = listOf(
         "Space" to "push to talk (hold)",
         "Tab" to "Radio → Memories → APRS",
-        "↑ ↓  (Fn ; .)" to "memory / select",
-        "← →  (Fn , /)" to "frequency step 12.5 kHz",
+        "↑ ↓  (Fn F / X)" to "memory / select",
+        "← →  (Fn Z / C)" to "frequency step 12.5 kHz",
         "0-9 Enter" to "type a frequency",
-        "[  ]" to "squelch   - = volume",
+        "[  ]" to "squelch   - =  (Fn S D) volume",
         "P  S  C" to "power, scan, connect",
         "Esc Esc / Ctrl+Q" to "quit",
     )

@@ -40,6 +40,13 @@ object Keys {
     const val DOT = 52
     const val SLASH = 53
     const val GRAVE = 41
+    const val F = 33
+    const val Z = 44
+    const val X = 45
+    const val C = 46
+    const val MUTE = 113
+    const val VOLUME_DOWN = 114
+    const val VOLUME_UP = 115
 }
 
 /**
