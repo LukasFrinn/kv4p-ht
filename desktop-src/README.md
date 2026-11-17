@@ -1,31 +1,9 @@
-# kv4p HT Desktop (Linux & macOS)
+# kv4p HT Desktop - developer notes
 
-Desktop app for the [kv4p HT](https://kv4p.com) radio, connected over USB.
-Targets Linux arm64 (Raspberry Pi OS, Debian 13 / ClockworkPi uConsole),
-Linux x64 and macOS on Apple Silicon.
-
-**Status: step 4 - receive, transmit, APRS, memories and scanning.** Connects, does the firmware
-handshake, tunes simplex frequencies, plays received audio, shows the S-meter
-and squelch, and transmits from the microphone: hold the PTT button, the space
-bar, or the PTT button on the radio. TX is only allowed inside the selected
-band plan (IARU Region 1 by default: 144-146 / 430-440 MHz) and stops
-automatically after 3 minutes, like the Android app. 
-
-**APRS** (APRS tab): received positions, messages, weather and objects with
-distance from you; chat with automatic acks and delivery marks; position
-beacon now or every 5-60 minutes from a Maidenhead locator or lat/lon (the
-desktop has no GPS); optional WIDE1-1 fill-in digipeater. One click tunes
-144.800 MHz.
-
-**Memories** (Radio tab → Memories): channels with name, repeater offset,
-TX/RX CTCSS tones, group and "skip during scan", same fields as the Android
-app. Click to tune, scan the selected group (stops on activity, PTT stops the
-scan on that channel). Stored as CHIRP CSV in `~/.kv4p-desktop/memories.csv`;
-import CHIRP or RepeaterBook CSV, export CHIRP CSV.
-
-On macOS the first transmit asks for microphone permission. If you denied it,
-re-enable kv4p-ht-desktop in *System Settings > Privacy & Security > Microphone*
-(builds before the ad-hoc signing fix never appeared there and recorded silence).
+Desktop app for the [kv4p HT](https://kv4p.com) radio (macOS Apple Silicon, Linux
+arm64 and x64, including the uConsole and the Cardputer Zero). Features,
+install and usage are in the [main README](../README.md); this file covers how
+the code is put together.
 
 ## How it stays in sync with the Android app
 
@@ -61,80 +39,24 @@ Desktop-only code:
 | `core/.../DesktopRadioSession.java` | connection, handshake, RX/TX audio, PTT (desktop version of RadioAudioService) |
 | `core/.../desktop/AprsController.java` | APRS receive/chat/acks/beacon/digipeat, ported from the Android app |
 | `core/.../desktop/Memory*.java` | channel memories, CHIRP/RepeaterBook CSV |
-| `app/` | Compose Desktop UI, audio output, logging, packaging |
+| `app/` | Compose Desktop UI, audio in/out, logging, packaging |
+| `app/.../cardputer/` | framebuffer output, evdev keyboard, compact 320x170 UI |
+| `app/.../ui/MapPreview.kt`, `OfflineMaps.kt` | map tiles, offline download |
 
-## Install
+## Install, firmware, troubleshooting
 
-Download the build for your system from the repository's **Actions** tab
-(latest *Desktop App* run → Artifacts).
+See the [main README](../README.md#install). Install scripts are in `scripts/`;
+`scripts/cardputer-test.sh` collects display, input, sound and memory details of
+a small Linux device.
 
-**Linux (.deb)**
+## Command-line options
 
-Recommended: install and update with the script (run it again for every
-update, no need to uninstall first; needs the GitHub CLI once:
-`sudo apt install gh && gh auth login`):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/LukasFrinn/kv4p-ht/desktop-app/desktop-src/scripts/install-linux.sh | bash
-```
-
-It picks the arm64 or x64 build, installs it with apt and adds you to the
-`dialout` group (log out and back in once after that). Or by hand:
-
-```sh
-sudo apt install ./kv4p-ht-desktop_*.deb
-sudo usermod -aG dialout $USER   # serial port access; log out and back in
-```
-
-The app is installed to `/opt/kv4p-ht-desktop/bin/kv4p-ht-desktop` and appears in the menu.
-
-**macOS** - recommended: install and update with the script, which avoids the
-"unidentified developer" warning (needs the GitHub CLI once: `brew install gh && gh auth login`):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/LukasFrinn/kv4p-ht/desktop-app/desktop-src/scripts/install-macos.sh | bash
-```
-
-Or download the `.dmg` from Actions by hand; the app is ad-hoc signed but not
-notarized, so after dragging it to Applications run
-`xattr -dr com.apple.quarantine "/Applications/kv4p-ht-desktop.app"` (or
-right-click → *Open* the first time). Removing the warning completely needs
-an Apple Developer ID (paid) for signing and notarization.
-
-The first PTT asks for microphone access. Because each build has a new ad-hoc
-signature, macOS may ask again after an update.
-The board's CP2102N USB chip should appear as `/dev/cu.usbserial-…`; if it
-doesn't, install the Silicon Labs CP210x VCP driver.
-
-**Any system with Java 17+** - the `.jar` artifact runs with `java -jar <file>.jar`.
-
-**M5Stack Cardputer Zero (built-in 320x170 screen)** - the Linux install script
-above also adds *kv4p HT* to APPLaunch. That entry starts the app with
-`--framebuffer`: a compact, keyboard-only UI drawn straight to `/dev/fb0`, keys
-read from `/dev/input` (no X11/Wayland), small JVM heap. Keys: Space = PTT,
-Tab = Radio → Memories → APRS, arrows (Fn + F/Z/X/C) to move, Fn + S/D volume, digits +
-Enter to tune, H shows all keys, Esc twice or Ctrl+Q quits. It connects by
-itself when the radio is plugged in. Settings, memories and the APRS station are
-shared with the full app (e.g. on HDMI), which is where they are edited.
-Options: `--fb /dev/fbN`, `--keyboard /dev/input/eventN`.
-
-## Firmware
-
-The app needs the firmware from the official v2.0.0.1 release (firmware v17,
-the one the Google Play app and the kv4p.com web flasher install). If it reports an old firmware, update it with the Android app or
-the web flasher on kv4p.com.
-
-## Troubleshooting
-
-Logs are written to `~/.kv4p-desktop/kv4p.log` (previous run: `kv4p.log.1`)
-and shown in the app's Debug window (Debug button, top right).
-
-Headless check, useful over SSH:
-
-```sh
-kv4p-ht-desktop --list-ports
-kv4p-ht-desktop --probe /dev/ttyUSB0 --freq 146.52 --listen --seconds 30
-```
+| Option | What |
+|---|---|
+| `--list-ports` | list serial ports (`*` = looks like a kv4p HT) |
+| `--probe <port> [--freq MHz] [--listen] [--seconds N]` | headless handshake check |
+| `--framebuffer [--fb /dev/fbN] [--keyboard /dev/input/eventN]` | compact 320x170 UI on a framebuffer (`cardputer/`) |
+| `-Dkv4p.audio=alsa\|javasound`, `-Dkv4p.audioTool=pacat\|pw-cat\|alsa`, `-Dkv4p.alsaDevice=…` | sound backend on Linux (`AlsaAudio.kt`) |
 
 ## Building
 
@@ -143,6 +65,7 @@ cd desktop-src
 ./gradlew :core:test        # protocol/handshake tests, no hardware needed
 ./gradlew :app:run          # run from source
 ./gradlew :app:packageDeb   # or packageDmg on macOS
+./gradlew -PtargetOs=linux-arm64 :app:packageUberJarForCurrentOS   # Linux arm64 .jar from any OS
 ```
 
 ## Credits
