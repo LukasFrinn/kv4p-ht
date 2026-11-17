@@ -21,28 +21,32 @@ if ! command -v gh >/dev/null; then
   exit 1
 fi
 
-echo "Looking for the latest successful build of ${REPO} (${BRANCH})..."
-RUN_ID=$(gh run list -R "$REPO" -b "$BRANCH" -w "Desktop App" -s success -L 1 --json databaseId -q '.[0].databaseId')
-if [ -z "${RUN_ID}" ]; then
-  echo "No successful build found." >&2
+echo "Looking for the latest build of ${REPO} (${BRANCH})..."
+# Newest build that produced this system's package (other jobs of that run, e.g. macOS, may have failed).
+RUN_ID=$(gh api "repos/${REPO}/actions/artifacts?name=${ARTIFACT}&per_page=50" \
+  -q "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == \"${BRANCH}\")][0].workflow_run.id")
+if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
+  echo "No build with ${ARTIFACT} found." >&2
   exit 1
 fi
 
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+# /var/tmp is on disk; /tmp is a small RAM disk on some devices (e.g. the Cardputer Zero).
+TMP=$(mktemp -d /var/tmp/kv4p-install.XXXXXX)
+trap 'rm -rf "$TMP" /var/tmp/kv4p-ht-desktop.deb' EXIT
 
 echo "Downloading build ${RUN_ID} (${ARTIFACT})..."
-gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$TMP"
+TMPDIR="$TMP" gh run download "$RUN_ID" -R "$REPO" -n "$ARTIFACT" -D "$TMP"
 DEB=$(find "$TMP" -name '*.deb' | head -1)
 [ -n "${DEB}" ] || { echo "No .deb in the build." >&2; exit 1; }
 
 echo "Installing $(basename "$DEB") (sudo password may be asked)..."
 pkill -f '/opt/kv4p-ht-desktop/' 2>/dev/null || true
-# apt needs a path it can read as the _apt user; /tmp/... from mktemp may not be.
-cp "$DEB" /tmp/kv4p-ht-desktop.deb
-chmod 644 /tmp/kv4p-ht-desktop.deb
-sudo apt-get install -y --allow-downgrades /tmp/kv4p-ht-desktop.deb
-rm -f /tmp/kv4p-ht-desktop.deb
+# apt needs a path it can read as the _apt user; the mktemp folder may not be.
+cp "$DEB" /var/tmp/kv4p-ht-desktop.deb
+chmod 644 /var/tmp/kv4p-ht-desktop.deb
+rm -rf "$TMP"   # free the space before unpacking
+sudo apt-get install -y --allow-downgrades /var/tmp/kv4p-ht-desktop.deb
+rm -f /var/tmp/kv4p-ht-desktop.deb
 
 if ! id -nG "$USER" | tr ' ' '\n' | grep -qx dialout; then
   echo "Adding ${USER} to the 'dialout' group for USB serial access..."
